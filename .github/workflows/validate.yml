@@ -21,3 +21,17 @@ jobs:
           node-version: '22'
       - name: Verify card syntax
         run: node --check custom_components/luxe_ezviz/frontend/luxe-ezviz-card.js
+      - name: Verify inline player JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('custom_components/luxe_ezviz/frontend/player.html').read_text()
+          scripts = [item for item in re.findall(r'<script\\b[^>]*>([\\s\\S]*?)</script>', source, re.I) if item.strip()]
+          if not scripts:
+              raise SystemExit('No inline player scripts found')
+          for index, script in enumerate(scripts):
+              Path(f'/tmp/luxe-player-{index}.js').write_text(script)
+          print(f'Extracted {len(scripts)} inline script(s)')
+          PY
+          for script in /tmp/luxe-player-*.js; do node --check "$script"; done

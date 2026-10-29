@@ -13,6 +13,8 @@ class AudioExclusivityChecks(unittest.TestCase):
         self.assertIn("__luxeEzvizAudioCoordinator", card)
         self.assertIn("claimFrame(frame,mode='sound')", card)
         self.assertIn("_muteForAudioExclusivity()", card)
+        self.assertIn("this._config?.muted===false&&!this._audioForceMuted", card)
+        self.assertIn("initialMuted=msg.muted!==false||forceMuteNextStart", player)
         self.assertIn("window.__luxeEzvizAudioControl = {mute:muteForCoordinator}", player)
         self.assertIn("const requestAudioOwnership = mode =>", player)
 

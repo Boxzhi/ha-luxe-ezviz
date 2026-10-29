@@ -224,9 +224,12 @@
       window.addEventListener('popstate',this._onNavigationRoute);
       clearTimeout(this._disconnectTimer);this._disconnectTimer=null;this._disconnectAt=0;
       window.addEventListener('message',this._onMessage);
-      // If HA preserved a Panel/card during navigation, never reuse its previous
-      // live-looking UI after returning. Wait for STOP before restoring idle.
-      if(decodeURIComponent(location.pathname).replace(/\/+$/,'').split('/').pop()==='cameras-2'){
+      // This instance belongs to its current route; never assume a specific
+      // dashboard slug. Reattachment may use a new route for the same card.
+      this._attachedRoute=location.pathname.replace(/\/+$/,'')||'/';
+      // If HA preserved the card during navigation, wait for STOP before
+      // restoring idle. Reattachment must reveal the play overlay.
+      {
         this._navigationLeaving=false;
         // A reattached HA Panel can preserve the hidden overlay DOM. Always sync it.
         if(this._needsIdleAfterNavigation && (this._iframe || this._state==='live' || this._state==='loading' || this._state==='stopping')){
@@ -290,10 +293,11 @@
       },this._disconnectGraceMs);
     }
     _onNavigationRoute(){
-      const route=decodeURIComponent(location.pathname).replace(/\/+$/,'').split('/').pop();
-      if(route!=='cameras-2' && (this._iframe || this._state==='live' || this._state==='loading' || this._state==='stopping')){
+      const route=location.pathname.replace(/\/+$/,'')||'/';
+      const activeRoute=this._attachedRoute||route;
+      if(route!==activeRoute && (this._iframe || this._state==='live' || this._state==='loading' || this._state==='stopping')){
         void this.stopForNavigation();
-      } else if(route==='cameras-2'){
+      } else if(route===activeRoute){
         this._navigationLeaving=false;
         this._loadMetadata();
         if(this._needsIdleAfterNavigation && (this._iframe || this._state==='live' || this._state==='loading' || this._state==='stopping'))void this.stopForNavigation(false);
@@ -486,7 +490,7 @@
       if(reset){
         this._needsIdleAfterNavigation=false;
         // STOP may finish after the user has already returned to this Panel.
-        if(this.isConnected && decodeURIComponent(location.pathname).replace(/\/+$/,'').split('/').pop()==='cameras-2')this._navigationLeaving=false;
+        if(this.isConnected && (location.pathname.replace(/\/+$/,'')||'/')===this._attachedRoute)this._navigationLeaving=false;
         this._setState('idle');
       }
       else if(this._state!=='error')this._setState('error','播放中断，请点击重试');

@@ -1,4 +1,4 @@
-/* Luxe EZVIZ camera card · v1.0.36 · optional per-device uploaded image · idle UI unified with camera wall; retain v1.0.31 navigation recovery. */
+/* Luxe EZVIZ camera card · v1.1.0 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;

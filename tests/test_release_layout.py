@@ -13,7 +13,7 @@ class PackageChecks(unittest.TestCase):
   h=json.loads((ROOT/'hacs.json').read_text())
   self.assertEqual(m['domain'],'luxe_ezviz')
   self.assertEqual(m['name'],h['name'])
-  self.assertEqual(m['version'],'1.1.1')
+  self.assertEqual(m['version'],'1.1.2')
   self.assertIn('issue_tracker',m)
   keys=list(m)
   self.assertEqual(keys[:2],['domain','name'])
@@ -21,10 +21,10 @@ class PackageChecks(unittest.TestCase):
  def test_frontend_paths(self):
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
-  self.assertIn('/luxe_ezviz/static/player.html?v=1.1.1-audio-exclusive',card)
+  self.assertIn('/luxe_ezviz/static/player.html?v=1.1.2-ezuikit-9.0.24',card)
   setup=(COMP/'frontend_setup.py').read_text()
-  self.assertIn("VERSION='1.1.1'",setup)
-  self.assertIn("ASSET_VERSION='1.1.1-audio-exclusive'",setup)
+  self.assertIn("VERSION='1.1.2'",setup)
+  self.assertIn("ASSET_VERSION='1.1.2-ezuikit-9.0.24'",setup)
   self.assertIn('/luxe_ezviz/sdk/ezuikit.js',player)
   self.assertIn("staticPath:'/luxe_ezviz/sdk/ezuikit_static'",player)
   self.assertNotIn('/local/luxe-ezviz/player.html',card)
@@ -32,8 +32,11 @@ class PackageChecks(unittest.TestCase):
   self.assertFalse((COMP/'frontend/vendor').exists())
   self.assertFalse(any(COMP.rglob('*.wasm')))
   hashes=json.loads((COMP/'sdk_hashes.json').read_text())
-  self.assertEqual(hashes['version'],'9.0.5')
-  self.assertEqual(len(hashes['files']),14)
+  self.assertEqual(hashes['version'],'9.0.24')
+  self.assertEqual(len(hashes['files']),12)
+  self.assertIn('ezuikit_static/libSystemTransformWASM.js',hashes['files'])
+  self.assertFalse(any(name.startswith('ezuikit_static/talk/') for name in hashes['files']))
+  self.assertTrue(all(isinstance(pin,dict) and isinstance(pin.get('git_blob_sha'),str) and isinstance(pin.get('size'),int) for pin in hashes['files'].values()))
  def test_brand_images(self):
   b=COMP/'brand'
   for stem in ['icon','dark_icon','logo','dark_logo']:

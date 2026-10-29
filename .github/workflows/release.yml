@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   validate:
-    if: startsWith(github.event.head_commit.message, 'release: v1.1.2')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +69,6 @@ jobs:
           for script in /tmp/luxe-player-*.js; do node --check "$script"; done
 
   hacs:
-    if: startsWith(github.event.head_commit.message, 'release: v1.1.2')
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main
@@ -78,7 +76,6 @@ jobs:
           category: integration
 
   hassfest:
-    if: startsWith(github.event.head_commit.message, 'release: v1.1.2')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

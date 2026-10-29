@@ -15,6 +15,9 @@ class PackageChecks(unittest.TestCase):
   self.assertEqual(m['name'],h['name'])
   self.assertEqual(m['version'],'1.1.0')
   self.assertIn('issue_tracker',m)
+  keys=list(m)
+  self.assertEqual(keys[:2],['domain','name'])
+  self.assertEqual(keys[2:],sorted(keys[2:]),'Hassfest requires alphabetically sorted manifest keys')
  def test_frontend_paths(self):
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()

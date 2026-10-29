@@ -12,7 +12,8 @@ from .sdk import sdk_directory
 _LOGGER = logging.getLogger(__name__)
 CARD_URL='/luxe_ezviz/static/luxe-ezviz-card.js'
 VERSION='1.1.0'
-CARD_RESOURCE=f'{CARD_URL}?v={VERSION}'
+ASSET_VERSION='1.1.0-audio-exclusive'
+CARD_RESOURCE=f'{CARD_URL}?v={ASSET_VERSION}'
 
 async def async_setup_frontend(hass: HomeAssistant) -> None:
     paths=[

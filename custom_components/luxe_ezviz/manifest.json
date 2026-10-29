@@ -1,3 +1,4 @@
+
 {
   "domain": "luxe_ezviz",
   "name": "Luxe EZVIZ",
@@ -14,7 +15,7 @@
   "documentation": "https://github.com/Boxzhi/ha-luxe-ezviz#readme",
   "integration_type": "device",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Boxzhi/ha-luxe-ezviz/issues",
   "requirements": [],
-  "version": "1.0.0",
-  "issue_tracker": "https://github.com/Boxzhi/ha-luxe-ezviz/issues"
+  "version": "1.0.0"
 }

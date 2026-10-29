@@ -22,6 +22,7 @@ class AudioExclusivityChecks(unittest.TestCase):
         self.assertIn("audio-exclusivity-failed", player)
         self.assertIn("signal('AUDIO_STATE',{soundOn})", player)
         self.assertIn("const syncSdkSoundFromNativeMute", player)
+        self.assertIn("if(initialSoundSyncBusy)return false", player)
 
     def test_talk_mutes_peers_and_keeps_them_muted_afterwards(self):
         player = (COMP / "frontend/player.html").read_text()

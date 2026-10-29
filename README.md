@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.0
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.0-audio-exclusive
       type: module
 ```
 
@@ -56,4 +56,14 @@ The player checks the selected camera's cloud capability set. Supported cameras 
 - The control endpoints require an authenticated HA administrator and never expose EZVIZ cloud credentials to the card.
 - Directional support is based on the official `device/capacity` API, not camera model names.
 - **Validation note:** GitHub Actions and automated regression tests pass. Before unattended use, verify movement and stop behavior on a real PTZ camera, and confirm the PTZ entry stays hidden on a non-PTZ camera.
+
+## Multi-camera audio exclusivity (v1.1.0)
+
+All Luxe EZVIZ cards on the same Home Assistant page coordinate audio playback. Enabling sound on one camera requests the other cameras to mute first. The card also mutes peer cameras before starting two-way talk. Ending talk releases the audio lock but does not restore sound on other cameras; the user must explicitly choose the next audio source.
+
+- Video playback remains independent; only audio is coordinated.
+- The existing `muted: true` default remains unchanged.
+- If another camera cannot confirm mute, the new sound request fails closed instead of intentionally allowing multiple audio sources.
+- Coordination is scoped to the same browser tab/page, not separate browser tabs or devices.
+- On iOS/Safari, verify sound switching, native fullscreen volume controls, talk start/stop, and playback teardown on the actual devices before unattended use.
 

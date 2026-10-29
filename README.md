@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Development status:** `v1.1.0 (PTZ release candidate, not yet published)` HACS packaging candidate based on the verified v1.0.36 Luxe EZVIZ codebase. Not an official EZVIZ product.
+**Version:** `v1.1.0` — PTZ controls and safety fixes, based on the Luxe EZVIZ HACS integration. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
@@ -46,7 +46,7 @@ Use GitHub tags/releases and keep `manifest.json` and `frontend_setup.py` versio
 
 If the custom card does not load, visit `/luxe_ezviz/static/luxe-ezviz-card.js`; if playback fails, check `/luxe_ezviz/sdk/ezuikit.js` and HA logs for SDK provisioning failures. Do not publish access tokens, device verification codes, or serial numbers in public issues.
 
-## PTZ controls (v1.1.0 candidate)
+## PTZ controls (v1.1.0)
 
 The player checks the selected camera's cloud capability set. Supported cameras show a four-direction PTZ button directly above the screenshot button after live playback starts. Unsupported/unknown devices show no PTZ entry. Opening the translucent panel hides the other video controls; tap outside the panel to close it (there is no close button).
 
@@ -55,5 +55,5 @@ The player checks the selected camera's cloud capability set. Supported cameras 
 - The HA backend also stops movement if no heartbeat arrives for 2.5 seconds.
 - The control endpoints require an authenticated HA administrator and never expose EZVIZ cloud credentials to the card.
 - Directional support is based on the official `device/capacity` API, not camera model names.
-- **Release testing:** Test on a real PTZ camera and a non-PTZ camera before publishing the v1.1.0 GitHub Release.
+- **Validation note:** GitHub Actions and automated regression tests pass. Before unattended use, verify movement and stop behavior on a real PTZ camera, and confirm the PTZ entry stays hidden on a non-PTZ camera.
 

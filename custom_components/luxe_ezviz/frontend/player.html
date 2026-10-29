@@ -1190,6 +1190,7 @@
             await Promise.resolve(instance.closeSound());
             if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
             soundOn=false;updateSoundUI();setNativeVideoMuted(true,'talk-start-mute-playback');
+            signal('AUDIO_STATE',{soundOn:false});
           }
           const result=await new Promise(resolve=>{
             talkStartResolver=resolve;

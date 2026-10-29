@@ -21,7 +21,10 @@ class PackageChecks(unittest.TestCase):
  def test_frontend_paths(self):
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
-  self.assertIn('/luxe_ezviz/static/player.html?v=1.1.0',card)
+  self.assertIn('/luxe_ezviz/static/player.html?v=1.1.0-audio-exclusive',card)
+  setup=(COMP/'frontend_setup.py').read_text()
+  self.assertIn("VERSION='1.1.0'",setup)
+  self.assertIn("ASSET_VERSION='1.1.0-audio-exclusive'",setup)
   self.assertIn('/luxe_ezviz/sdk/ezuikit.js',player)
   self.assertIn("staticPath:'/luxe_ezviz/sdk/ezuikit_static'",player)
   self.assertNotIn('/local/luxe-ezviz/player.html',card)

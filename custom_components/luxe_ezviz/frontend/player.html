@@ -319,6 +319,7 @@
       let firstFrameAt = 0;
       let firstFrameSignaled = false;
       let initialMuted = true;
+      let forceMuteNextStart = false;
       let initialSoundSyncBusy = false;
       let soundOn = false;
       let soundBusy = false;
@@ -467,9 +468,17 @@
       buttonPiP.hidden = !supportsPiP;
       const toast = document.getElementById('toast');
       const vendorReady = Boolean(window.EZUIKit?.EZUIKitPlayer);
-      const signal = (state, reason) => {
+      const signal = (state, detail) => {
         if (!currentId) return;
-        window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',id:currentId,state,...(reason?{reason}:{})},iframeOrigin);
+        const extra=detail&&typeof detail==='object'?detail:(detail?{reason:detail}:{});
+        window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',id:currentId,state,...extra},iframeOrigin);
+      };
+      const requestAudioOwnership = mode => {
+        try{
+          const coordinator=window.parent?.__luxeEzvizAudioCoordinator;
+          if(coordinator?.claimFrame&&ownFrame)return coordinator.claimFrame(ownFrame,mode);
+        }catch(_){}
+        return {allowed:true,reason:null,completion:Promise.resolve(true)};
       };
       const cleanError = (error) => {
         const s = String(error?.data?.nErrorCode ?? error?.code ?? error?.type ?? 'playback_error');
@@ -729,10 +738,12 @@
           if(instance!==player||stopping)return false;
           soundOn=Boolean(desiredSound);updateSoundUI();
           setNativeVideoMuted(!soundOn,`talk-${reason}-restore`);
+          signal('AUDIO_STATE',{soundOn});
           return true;
         }catch(err){
           if(instance===player&&!stopping){
             soundOn=false;updateSoundUI();setNativeVideoMuted(true,`talk-${reason}-restore-failed`);
+            signal('AUDIO_STATE',{soundOn:false});
           }
           return false;
         }
@@ -1136,10 +1147,16 @@
         await restoreTalkPlaybackSound(instance,restoreSound,'failure');
         if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
         talkActive=false;talkBusy=false;talkStopping=false;talkPreviousSoundOn=false;updateTalkUI();
+        signal('TALK_STATE',{talkActive:false});
         showToast(String(message||'对讲失败').slice(0,70));
       };
       const startTalkByUser = async () => {
         if(!talkSupported||!player||!firstFrame||stopping||talkBusy||talkActive)return;
+        const ownership=requestAudioOwnership('talk');
+        if(!ownership.allowed){
+          showToast('另一台摄像机正在对讲，暂时无法开启对讲');
+          return;
+        }
         micGate?.setTalkIntent?.(true,'explicit-talk-button-click');
         const instance=player,generation=++talkAttemptGeneration;
         talkBusy=true;talkStopping=false;talkActive=false;talkStartInvoked=false;
@@ -1147,7 +1164,17 @@
         try{
           if(typeof instance.getMicrophonePermission!=='function'||typeof instance.getMicrophonesList!=='function'||typeof instance.startTalk!=='function'||typeof instance.stopTalk!=='function')
             throw Object.assign(new Error('当前 EZUIKit 实例缺少对讲接口'),{userMessage:'当前 SDK 不支持完整对讲功能'});
-          const permission=await Promise.resolve(instance.getMicrophonePermission());
+          // Invoke the SDK permission method synchronously in the click task;
+          // wait for other cameras to mute without losing the microphone gesture.
+          const permissionRequest=Promise.resolve(instance.getMicrophonePermission());
+          permissionRequest.catch(()=>{});
+          const coordinated=await ownership.completion;
+          if(!coordinated)
+            throw Object.assign(new Error('audio_exclusivity_failed'),{
+              userMessage:'无法确认其他监控已静音，请稍后重试',
+              audioCoordinationFailure:true
+            });
+          const permission=await permissionRequest;
           if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
           if(Number(permission?.code)!==0)
             throw Object.assign(new Error(permission?.msg||'麦克风权限未授权'),{userMessage:'麦克风权限未授权，请允许访问麦克风',talkCode:permission?.code});
@@ -1175,6 +1202,7 @@
           if(Number(result?.code)!==0)
             throw Object.assign(new Error(result?.msg||'对讲启动失败'),{userMessage:result?.timeout?'对讲启动超时，请检查网络与设备权限':(result?.msg||'对讲启动失败'),talkCode:result?.code});
           talkActive=true;talkBusy=false;talkStopping=false;updateTalkUI();
+          signal('TALK_STATE',{talkActive:true});
           showToast('对讲已启动');
         }catch(err){
           micGate?.setTalkIntent?.(false,'talk-start-failed');
@@ -1184,9 +1212,15 @@
             try{instance.stopTalk();}catch(stopErr){}
           }
           talkStartInvoked=false;talkActive=false;talkBusy=true;talkStopping=true;updateTalkUI();
+          if(err?.audioCoordinationFailure){
+            try{await Promise.resolve(instance.closeSound());}catch(_){}
+            soundOn=false;updateSoundUI();setNativeVideoMuted(true,'talk-audio-coordination-failed');
+            talkPreviousSoundOn=false;
+          }
           await restoreTalkPlaybackSound(instance,talkPreviousSoundOn,'start-error');
           if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
           talkActive=false;talkBusy=false;talkStopping=false;talkPreviousSoundOn=false;updateTalkUI();
+          signal('TALK_STATE',{talkActive:false});
           showToast(String(err?.userMessage||err?.message||'对讲启动失败').slice(0,90));
         }
       };
@@ -1200,11 +1234,14 @@
           await restoreTalkPlaybackSound(instance,restoreSound,'stop');
           if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
           talkPreviousSoundOn=false;talkActive=false;talkBusy=false;talkStopping=false;updateTalkUI();
+          signal('TALK_STATE',{talkActive:false});
           showToast('对讲已结束');
         }catch(err){
           micGate?.setTalkIntent?.(false,'talk-stop-failed');
           if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
-          talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;updateTalkUI();
+          // Keep the talk lock and active UI when STOP fails; other cameras
+          // must not start playback audio while the microphone may still be live.
+          talkActive=true;talkBusy=false;talkStopping=false;talkStartInvoked=true;updateTalkUI();
           showToast('结束对讲失败，请重试');
         }
       };
@@ -1219,6 +1256,7 @@
         void restoreTalkPlaybackSound(instance,restoreSound,'pip').finally(()=>{
           if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
           talkPreviousSoundOn=false;talkBusy=false;talkStopping=false;updateTalkUI();
+          signal('TALK_STATE',{talkActive:false});
         });
       };
       const applyInitialSdkSoundState = async reason => {
@@ -1246,7 +1284,10 @@
             }catch(retryErr){}
           }
           return false;
-        }finally{initialSoundSyncBusy=false;}
+        }finally{
+          initialSoundSyncBusy=false;
+          signal('AUDIO_STATE',{soundOn:Boolean(soundOn)});
+        }
       };
       const resumeNativeControlAudioContext = reason => {
         const context=pipSilentAudioContext;
@@ -1276,17 +1317,66 @@
           setTimeout(()=>{if(nativeMediaPresentationActive())void syncSdkSoundFromNativeMute(pipVideo.muted,via+'-retry');},100);
           return;
         }
+        const ownership=desiredSound?requestAudioOwnership('sound'):null;
+        if(desiredSound&&!ownership.allowed){
+          setNativeVideoMuted(true,'audio-blocked-by-talk');
+          showToast('其他摄像机正在对讲，暂时无法开启声音');
+          return;
+        }
         nativeSoundSyncBusy=true;
         const currentPlayer=player;
         try{
-          await Promise.resolve(desiredSound?currentPlayer.openSound():currentPlayer.closeSound());
+          // Invoke openSound in the native volume gesture task. The coordinator
+          // synchronously asks all other same-origin players to mute first.
+          const operation=Promise.resolve(desiredSound?currentPlayer.openSound():currentPlayer.closeSound());
+          operation.catch(()=>{});
+          if(desiredSound&&!await ownership.completion){
+            try{await Promise.resolve(currentPlayer.closeSound());}catch(_){}
+            if(currentPlayer===player&&!stopping){
+              soundOn=false;updateSoundUI();setNativeVideoMuted(true,'audio-exclusivity-failed');
+              signal('AUDIO_STATE',{soundOn:false});
+            }
+            showToast('无法确认其他监控已静音，声音未开启');
+            return;
+          }
+          await operation;
           if(currentPlayer!==player||stopping)return;
           soundOn=desiredSound;
           updateSoundUI();
+          setNativeVideoMuted(!soundOn,'native-sound-state');
+          signal('AUDIO_STATE',{soundOn});
         }catch(err){
           setNativeVideoMuted(!soundOn,'sdk-sound-sync-error');
           showToast('系统音量操作失败');
         }finally{nativeSoundSyncBusy=false;}
+      };
+      const muteForCoordinator = async () => {
+        // Set this before touching the SDK so a not-yet-started player will
+        // apply muted=true when its first frame arrives.
+        if(!currentId)forceMuteNextStart=true;
+        initialMuted=true;
+        setNativeVideoMuted(true,'audio-exclusivity');
+        const instance=player;
+        if(!instance||stopping){
+          soundOn=false;updateSoundUI();signal('AUDIO_STATE',{soundOn:false});
+          return true;
+        }
+        const deadline=Date.now()+1800;
+        while(initialSoundSyncBusy&&Date.now()<deadline)
+          await new Promise(resolve=>setTimeout(resolve,20));
+        if(instance!==player||stopping)return true;
+        if(!firstFrame){
+          soundOn=false;updateSoundUI();signal('AUDIO_STATE',{soundOn:false});
+          return true;
+        }
+        try{
+          if(typeof instance.closeSound!=='function')return false;
+          await Promise.resolve(instance.closeSound());
+          if(instance!==player||stopping)return true;
+          soundOn=false;updateSoundUI();setNativeVideoMuted(true,'audio-exclusivity-confirmed');
+          signal('AUDIO_STATE',{soundOn:false});
+          return true;
+        }catch(_){return false;}
       };
       const releaseSilentAudioSource = reason => {
         const track=pipSilentAudioTrack;
@@ -2297,7 +2387,8 @@
         finishPtzDrag();ptzPosition=null;
         ptzPanel.hidden=true;ptzDismiss.hidden=true;document.body.classList.remove('ptz-open');
         micGate?.setTalkIntent?.(false,'player-start');
-        initialMuted=msg.muted!==false;
+        initialMuted=msg.muted!==false||forceMuteNextStart;
+        forceMuteNextStart=false;
         soundOn=false;
         talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;
         talkSupported=false;buttonTalk.hidden=true;
@@ -2447,16 +2538,35 @@
       });
       buttonSound.addEventListener('click',async()=>{
         if(!player||!firstFrame||stopping||soundBusy||talkActive||talkBusy)return;
-        soundBusy=true;
-        buttonSound.disabled=true;
         const next=!soundOn;
         const currentPlayer=player;
+        const ownership=next?requestAudioOwnership('sound'):null;
+        if(next&&!ownership.allowed){
+          showToast('其他摄像机正在对讲，暂时无法开启声音');
+          return;
+        }
+        soundBusy=true;
+        buttonSound.disabled=true;
         try {
-          await Promise.resolve(next?currentPlayer.openSound():currentPlayer.closeSound());
+          // Keep openSound() in the click task for Safari/iOS autoplay rules.
+          // claim() synchronously starts muting other cards before this call.
+          const operation=Promise.resolve(next?currentPlayer.openSound():currentPlayer.closeSound());
+          operation.catch(()=>{});
+          if(next&&!await ownership.completion){
+            try{await Promise.resolve(currentPlayer.closeSound());}catch(_){}
+            if(currentPlayer===player&&!stopping){
+              soundOn=false;updateSoundUI();setNativeVideoMuted(true,'audio-exclusivity-failed');
+              signal('AUDIO_STATE',{soundOn:false});
+            }
+            showToast('无法确认其他监控已静音，声音未开启');
+            return;
+          }
+          await operation;
           if(currentPlayer!==player||stopping)return;
           soundOn=next;
           updateSoundUI();
           if(nativeMediaPresentationActive())setNativeVideoMuted(!soundOn,'custom-sound-control');
+          signal('AUDIO_STATE',{soundOn});
           scheduleHide(3000);
         } catch (_) {
           if(currentPlayer===player&&!stopping){signal('AUDIO_ERROR');showToast('声音开启失败');}
@@ -2577,6 +2687,7 @@
         clearHostTransitionBridge('pagehide');
         clearCanvasFitOverride();
       });
+      window.__luxeEzvizAudioControl = {mute:muteForCoordinator};
       window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',state:'READY'},iframeOrigin);
     })();
   </script>

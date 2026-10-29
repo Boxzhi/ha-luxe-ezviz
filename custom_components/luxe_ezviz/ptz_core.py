@@ -79,10 +79,21 @@ class PtzController:
             code = DIRECTIONS[direction]
             try:
                 await self._send("start", code)
-            except Exception:
-                # Device may have started even if the acknowledgment was lost.
-                with suppress(Exception):
+            except (Exception, asyncio.CancelledError):
+                # START may have reached the camera even when its reply was
+                # lost or the request was cancelled. Retain watchdog ownership
+                # until a cloud STOP is positively acknowledged.
+                self._active = code
+                self._arm()
+                try:
                     await self._send("stop", code)
+                except (Exception, asyncio.CancelledError):
+                    # Retry immediately when the serialized START/STOP
+                    # attempt is over; block new START while uncertain.
+                    self._deadline = asyncio.get_running_loop().time()
+                else:
+                    self._active = None
+                    self._deadline = 0.0
                 raise
             self._active = code
             self._arm()
@@ -141,12 +152,11 @@ class PtzController:
             raise
 
     async def close(self) -> None:
-        # Attempt cloud STOP first. Do not silently discard active movement.
-        try:
-            await self.stop()
-        finally:
-            task = self._watchdog
-            if task and task is not asyncio.current_task():
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+        # Never cancel the retry watchdog if cloud STOP failed: the caller
+        # must refuse normal unload and retain the running controller.
+        await self.stop()
+        task = self._watchdog
+        if task and task is not asyncio.current_task():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task

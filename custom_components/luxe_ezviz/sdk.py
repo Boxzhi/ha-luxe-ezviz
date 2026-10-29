@@ -29,7 +29,7 @@ def _spec() -> dict:
 
 
 def sdk_directory(hass: HomeAssistant) -> Path:
-    # Separate cache from the production integration and from every SDK version.
+    # Keep the cache version-scoped so an upgrade never overwrites an older SDK.
     version = str(_spec()["version"])
     return Path(hass.config.path("luxe_ezviz_sdk", version))
 

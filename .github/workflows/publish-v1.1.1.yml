@@ -1,0 +1,74 @@
+name: One-time publish Luxe EZVIZ v1.1.1
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.head_commit.message == 'release-trigger-v1.1.1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the trigger commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ github.token }}
+
+      - name: Verify the intended release target
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: |
+          test "$BASE_SHA" = "84a4c00429a45eea91270eb7eb84c0427d3ccacd"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("custom_components/luxe_ezviz/manifest.json").read_text())
+          assert manifest["version"] == "1.1.1", manifest["version"]
+          card = Path("custom_components/luxe_ezviz/frontend/luxe-ezviz-card.js").read_text()
+          assert "1.1.1-audio-exclusive" in card
+          print("Release target verified: v1.1.1")
+          PY
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.before }}
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          ## What's Changed
+
+          ### Multi-camera audio exclusivity
+          - Coordinate audio ownership across Luxe EZVIZ cards on the same Home Assistant page.
+          - Mute other camera audio before enabling sound on a camera.
+          - Mute peer cameras before starting two-way talk.
+          - After talk ends, do not automatically restore sound on other cameras; users explicitly choose the next audio source.
+          - Block competing sound requests during talk and fail closed when peer mute cannot be confirmed.
+          - Keep video playback independent and preserve the existing `muted: true` default.
+
+          ### Reliability and validation
+          - Handle late player startup and unresolved SDK audio-state synchronization.
+          - Preserve existing PTZ controls, navigation cleanup, and camera playback behavior.
+          - Add regression checks for audio/talk exclusivity and inline player JavaScript syntax.
+
+          **Hardware validation:** GitHub Actions, HACS/Hassfest, and source regression checks pass. Verify sound switching, iOS/Safari native volume controls, and talk start/stop on physical devices before unattended production use.
+          EOF
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            echo "Release v1.1.1 already exists; skipping duplicate creation."
+          else
+            gh release create v1.1.1 --target "$BASE_SHA" --title "Luxe EZVIZ v1.1.1" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+
+      - name: Remove the one-time publishing workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/publish-v1.1.1.yml
+          git commit -m "chore: remove one-time v1.1.1 release workflow"
+          git push origin HEAD:main

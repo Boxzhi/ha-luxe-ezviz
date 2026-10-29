@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.1.0` — PTZ controls and safety fixes, based on the Luxe EZVIZ HACS integration. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.1.0` — PTZ controls, safety fixes, and multi-camera audio exclusivity. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 

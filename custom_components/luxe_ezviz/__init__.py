@@ -38,6 +38,7 @@ from .playback import LuxeEzvizPlaybackView
 from .image_manager import async_delete_image
 from .frontend_setup import async_setup_frontend
 from .sdk import async_prepare_sdk
+from .ptz import LuxeEzvizPtzCapabilityView, LuxeEzvizPtzControlView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,6 +97,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(LuxeEzvizStatusView())
     hass.http.register_view(LuxeEzvizCheckView())
     hass.http.register_view(LuxeEzvizPlaybackView())
+    hass.http.register_view(LuxeEzvizPtzCapabilityView())
+    hass.http.register_view(LuxeEzvizPtzControlView())
     return True
 
 
@@ -155,6 +158,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload without touching existing go2rtc or other integrations."""
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if runtime and getattr(runtime, "ptz_controller", None):
+        try:
+            await runtime.ptz_controller.close()
+        except Exception:
+            _LOGGER.warning("Could not confirm PTZ stopped during entry unload")
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return True
 

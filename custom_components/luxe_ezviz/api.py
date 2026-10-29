@@ -7,7 +7,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-from .const import CHANNEL_LIST_URL, DEVICE_INFO_URL, TOKEN_URL
+from .const import CHANNEL_LIST_URL, DEVICE_INFO_URL, TOKEN_URL, PTZ_CAPACITY_URL, PTZ_START_URL, PTZ_STOP_URL
 
 _TIMEOUT = ClientTimeout(total=15)
 
@@ -60,12 +60,15 @@ class EzvizClient:
             TOKEN_URL: "token",
             DEVICE_INFO_URL: "device_info",
             CHANNEL_LIST_URL: "device_channels",
+            PTZ_CAPACITY_URL: "ptz_capacity",
+            PTZ_START_URL: "ptz_start",
+            PTZ_STOP_URL: "ptz_stop",
         }.get(url)
         if endpoint is None:
             raise ValueError("Unexpected EZVIZ API endpoint")
         try:
             async with self._session.post(
-                url, data=payload, timeout=_TIMEOUT, allow_redirects=False
+                url, data=payload, timeout=(ClientTimeout(total=4) if endpoint.startswith("ptz_") else _TIMEOUT), allow_redirects=False
             ) as response:
                 if response.status != 200:
                     raise EzvizConnectionError(endpoint=endpoint)
@@ -128,3 +131,20 @@ class EzvizClient:
         if not isinstance(data, list) or not all(isinstance(row, dict) for row in data):
             raise EzvizConnectionError(endpoint="device_channels")
         return data
+
+    async def async_ptz_capability(self, token: str, serial: str) -> dict[str, Any]:
+        """Read the device's official capability set, not a model-based guess."""
+        result = await self._post(PTZ_CAPACITY_URL, {"accessToken": token, "deviceSerial": serial})
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise EzvizConnectionError(endpoint="ptz_capacity")
+        return data
+
+    async def async_ptz_control(self, token: str, serial: str, channel: int, action: str, direction: int) -> None:
+        """Use server-side credentials for PTZ start and stop."""
+        if action not in ("start", "stop") or direction not in (0, 1, 2, 3):
+            raise ValueError("Invalid PTZ operation")
+        payload = {"accessToken": token, "deviceSerial": serial, "channelNo": str(channel), "direction": str(direction)}
+        if action == "start":
+            payload["speed"] = "1"
+        await self._post(PTZ_START_URL if action == "start" else PTZ_STOP_URL, payload)

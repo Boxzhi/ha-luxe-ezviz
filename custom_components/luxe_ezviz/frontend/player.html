@@ -125,7 +125,7 @@
     @keyframes quality-switch-spin{to{transform:rotate(360deg)}}
     #controls{position:absolute;left:8px;right:8px;bottom:7px;
       z-index:5;display:flex;align-items:center;justify-content:space-between;
-      opacity:0;visibility:hidden;transform:translateY(3px);pointer-events:none;
+      opacity:0;visibility:hidden;transform:translateY(calc(-50% + 3px));pointer-events:none;
       transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
     body.live.controls-visible #controls{opacity:1;visibility:visible;transform:translateY(0);
       transition:opacity .18s ease,transform .18s ease;pointer-events:auto}
@@ -188,6 +188,49 @@
     .quality-option[aria-checked="true"]{color:#438cff;background:transparent;font-weight:600}
     .quality-option:disabled{opacity:.55;cursor:wait}
     .quality-empty{padding:12px 8px;color:#aeb9c8;text-align:center;font:12px/1.5 -apple-system,BlinkMacSystemFont,sans-serif}
+    /* PTZ is a focused overlay: no close button, tap outside to dismiss.
+       Keep the video at its original size; do not intercept video SDK layout. */
+    #ptz-trigger{position:absolute;right:8px;top:calc(50% - 44px);z-index:5;
+      opacity:0;visibility:hidden;transform:translateY(calc(-50% + 3px));pointer-events:none;
+      transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
+    body.live.controls-visible #ptz-trigger:not([hidden]){opacity:1;visibility:visible;
+      transform:translateY(-50%);pointer-events:auto}
+    #ptz-trigger svg{width:23px;height:23px}
+    #ptz-dismiss{position:absolute;inset:0;z-index:10;background:transparent;
+      touch-action:manipulation;cursor:default}
+    #ptz-panel{position:absolute;top:50%;right:8px;z-index:11;
+      width:156px;max-width:calc(100% - 16px);box-sizing:border-box;
+      transform:translateY(-50%);padding:9px;border-radius:14px;
+      background:rgba(10,18,30,.62);border:1px solid rgba(220,234,252,.15);
+      backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+      box-shadow:0 5px 18px rgba(0,0,0,.22);color:#eef4fa;
+      user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+    #ptz-panel[hidden],#ptz-dismiss[hidden]{display:none!important}
+    #ptz-panel-title{font:500 12px/1.3 -apple-system,BlinkMacSystemFont,sans-serif;
+      padding:1px 1px 8px;text-align:center;color:rgba(240,245,252,.88)}
+    #ptz-grid{display:grid;grid-template-columns:repeat(3,44px);
+      grid-template-rows:repeat(3,44px);gap:2px;justify-content:center}
+    .ptz-key{appearance:none;border:0;border-radius:50%;padding:0;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(197,215,236,.12);color:#f2f6fc;
+      touch-action:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .ptz-key svg{width:21px;height:21px;stroke:currentColor;fill:none;
+      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+    .ptz-key.pressed{background:rgba(47,126,223,.88)}
+    .ptz-key:disabled{opacity:.32;cursor:default}
+    .ptz-center{border-radius:50%;width:11px;height:11px;background:rgba(225,238,252,.32);
+      align-self:center;justify-self:center}
+    #ptz-tip{text-align:center;color:rgba(228,240,255,.65);
+      font:10px/1.35 -apple-system,BlinkMacSystemFont,sans-serif;padding-top:8px}
+    body.ptz-open #controls,body.ptz-open #screenshot,body.ptz-open #ptz-trigger,
+    body.ptz-open #quality-menu,body.ptz-open #toast{opacity:0!important;
+      visibility:hidden!important;pointer-events:none!important}
+    body.ptz-open #shade{opacity:0!important}
+    @media(max-width:380px){#ptz-panel{right:5px}}
+    @media(max-height:260px){#ptz-panel{width:142px;padding:6px}
+      #ptz-panel-title{padding-bottom:4px}
+      #ptz-grid{grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px)}
+      #ptz-tip{display:none}}
     #toast{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;
       max-width:92%;padding:6px 10px;border-radius:7px;background:rgba(12,20,31,.8);
       font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#f0f3f8;
@@ -225,6 +268,26 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/></svg>
       </button>
     </div>
+  </div>
+  <!-- PTZ trigger appears only after server-confirmed per-device PTZ capability. -->
+  <button class="control" id="ptz-trigger" type="button" aria-label="打开云台控制" title="云台控制" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20m-7-7-3-3-3 3m6 14-3 3-3-3M5 9l-3 3 3 3m14-6 3 3-3 3"/></svg>
+  </button>
+  <div id="ptz-dismiss" aria-label="点击画面关闭云台控制" hidden></div>
+  <div id="ptz-panel" role="group" aria-label="云台方向控制" hidden>
+    <div id="ptz-panel-title">云台控制</div>
+    <div id="ptz-grid">
+      <span></span>
+      <button class="ptz-key" data-ptz="up" aria-label="向上转动"><svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg></button>
+      <span></span>
+      <button class="ptz-key" data-ptz="left" aria-label="向左转动"><svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg></button>
+      <span class="ptz-center" aria-hidden="true"></span>
+      <button class="ptz-key" data-ptz="right" aria-label="向右转动"><svg viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></svg></button>
+      <span></span>
+      <button class="ptz-key" data-ptz="down" aria-label="向下转动"><svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></svg></button>
+      <span></span>
+    </div>
+    <div id="ptz-tip">轻点微调 · 长按持续转动</div>
   </div>
   <!-- Right-hand screenshot button; outside the bottom control strip. -->
   <button class="control" id="screenshot" type="button" aria-label="保存当前画面截图" title="截图">
@@ -365,6 +428,14 @@
       buttonTalk.hidden = true;
       const buttonFull = document.getElementById('fullscreen');
       const buttonShot = document.getElementById('screenshot');
+      const ptzTrigger=document.getElementById('ptz-trigger');
+      const ptzDismiss=document.getElementById('ptz-dismiss');
+      const ptzPanel=document.getElementById('ptz-panel');
+      const ptzKeys=Array.from(document.querySelectorAll('[data-ptz]'));
+      let ptzSupported=false, ptzDirections=[], ptzOpen=false, ptzPress=null, ptzBusy=false;
+      let ptzRpcCounter=0;
+      const ptzPending=new Map();
+
       const buttonPiP = document.getElementById('pip');
       const qualitySwitchOverlay = document.getElementById('quality-switch-overlay');
       const qualitySwitchMessage = document.getElementById('quality-switch-message');
@@ -395,15 +466,15 @@
       };
       const scheduleHide = (time=3000) => {
         clearTimeout(hideTimer);
-        if(!qualityMenu.hidden)return;
+        if(!qualityMenu.hidden||ptzOpen)return;
         hideTimer = setTimeout(() => {
-          if (!qualityMenu.hidden)return;
+          if (!qualityMenu.hidden||ptzOpen)return;
           if (!document.querySelector('#controls:focus-within'))
             document.body.classList.remove('controls-visible');
         },time);
       };
       const showControls = (isTouch=false) => {
-        if (!firstFrame || stopping) return;
+        if (!firstFrame || stopping || ptzOpen) return;
         document.body.classList.add('controls-visible');
         clearTimeout(hideTimer);
         if (isTouch) scheduleHide(3000);
@@ -414,6 +485,112 @@
         buttonQuality.setAttribute('aria-expanded','false');
         document.body.classList.remove('controls-visible');
       };
+      // Cloud PTZ is handled by the HA parent (no credentials inside the iframe).
+      // A parent request includes the existing player id; responses are checked.
+      const ptzRpc=(action,direction='')=>{
+        if(!currentId)return Promise.reject(new Error('no_session'));
+        const requestId=++ptzRpcCounter;
+        return new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>{ptzPending.delete(requestId);reject(new Error('ptz_timeout'));},6500);
+          ptzPending.set(requestId,{resolve,reject,timer});
+          window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',state:'PTZ_RPC',id:currentId,
+            requestId,action,direction},iframeOrigin);
+        });
+      };
+      const ptzStop=()=>ptzRpc('stop').catch(()=>{});
+      const resetPtzPress=({stop=true}={})=>{
+        const press=ptzPress;ptzPress=null;
+        if(!press)return;
+        clearTimeout(press.timer);
+        clearInterval(press.heartbeat);
+        press.button.classList.remove('pressed');
+        if(press.mode==='hold'&&stop){
+          // If UP occurs before cloud START resolves, STOP must follow START.
+          Promise.resolve(press.startPromise).catch(()=>{}).finally(()=>void ptzStop());
+        }
+      };
+      const closePtz=(teardown=false)=>{
+        if(!ptzOpen&&!ptzPress)return;
+        resetPtzPress();
+        // A STOP also protects quick close during pending tap movement.
+        void ptzStop();
+        ptzOpen=false;
+        ptzPanel.hidden=true;ptzDismiss.hidden=true;
+        document.body.classList.remove('ptz-open');
+        if(!teardown&&firstFrame&&!stopping)showControls(true);
+      };
+      const openPtz=()=>{
+        if(!ptzSupported||!firstFrame||stopping||ptzOpen)return;
+        hideControls();
+        ptzOpen=true;
+        ptzPanel.hidden=false;ptzDismiss.hidden=false;
+        document.body.classList.add('ptz-open');
+      };
+      const updatePtzCapability=()=>{
+        ptzTrigger.hidden=!ptzSupported;
+        for(const b of ptzKeys)b.disabled=!ptzDirections.includes(b.dataset.ptz);
+      };
+      const loadPtzCapability=async()=>{
+        try{
+          const info=await ptzRpc('capability');
+          if(!firstFrame||stopping)return;
+          ptzDirections=info?.supported===true&&Array.isArray(info?.directions)?info.directions:[];
+          ptzSupported=ptzDirections.length>0;
+          updatePtzCapability();
+        }catch(_){ptzSupported=false;ptzDirections=[];updatePtzCapability();}
+      };
+      ptzTrigger.addEventListener('click',openPtz);
+      ptzDismiss.addEventListener('click',()=>closePtz());
+      for(const button of ptzKeys){
+        button.addEventListener('pointerdown',event=>{
+          if(!ptzOpen||ptzPress||ptzBusy||button.disabled||!firstFrame||stopping)return;
+          if(event.button!==0)return;
+          event.preventDefault();
+          button.setPointerCapture?.(event.pointerId);
+          button.classList.add('pressed');
+          const press={button,id:event.pointerId,mode:'pending',timer:null,heartbeat:null,startPromise:null};
+          ptzPress=press;
+          press.timer=setTimeout(()=>{
+            if(ptzPress!==press)return;
+            press.mode='hold';
+            press.startPromise=ptzRpc('start',button.dataset.ptz).then(()=>{
+              if(ptzPress!==press)return ptzStop();
+              press.heartbeat=setInterval(()=>{
+                if(ptzPress===press)void ptzRpc('heartbeat').catch(()=>closePtz());
+              },800);
+            }).catch(()=>{if(ptzPress===press){resetPtzPress({stop:false});closePtz();}});
+          },230);
+        });
+        const release=event=>{
+          if(!ptzPress||ptzPress.button!==button||ptzPress.id!==event.pointerId)return;
+          const press=ptzPress, short=press.mode==='pending';
+          resetPtzPress({stop:true});
+          if(short&&ptzOpen&&!stopping){
+            ptzBusy=true;
+            void ptzRpc('pulse',button.dataset.ptz).catch(()=>{}).finally(()=>{ptzBusy=false;});
+          }
+        };
+        button.addEventListener('pointerup',release);
+        button.addEventListener('pointercancel',event=>{
+          if(ptzPress?.id===event.pointerId)ptzPress.mode='cancelled';
+          release(event);
+        });
+        button.addEventListener('pointermove',event=>{
+          if(ptzPress?.button!==button||ptzPress.id!==event.pointerId)return;
+          const r=button.getBoundingClientRect();
+          if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom){
+            // Moving away cancels rather than firing a short tap.
+            if(ptzPress.mode==='pending')ptzPress.mode='cancelled';
+            release(event);
+          }
+        });
+        // Keyboard and accessibility: one brief move per activation.
+        button.addEventListener('click',event=>{
+          if(event.detail!==0||!ptzOpen||ptzBusy||button.disabled)return;
+          ptzBusy=true;
+          void ptzRpc('pulse',button.dataset.ptz).catch(()=>{}).finally(()=>{ptzBusy=false;});
+        });
+      }
       const showToast = (value) => {
         toast.textContent=value;
         toast.classList.add('on');
@@ -1967,6 +2144,7 @@
           firstFrameSignaled=true;
           qualityRenderSnapshot('first-frame-ready');
           signal('FIRST_FRAME');
+          void loadPtzCapability();
           prewarmSafariPiP();
         };
         clearTimeout(firstFrameAudioFallbackTimer);
@@ -1977,6 +2155,10 @@
       async function stop() {
         if (stopping) return;
         stopping = true;
+        closePtz(true);
+        ptzSupported=false;ptzDirections=[];ptzBusy=false;updatePtzCapability();
+        for(const pending of ptzPending.values()){clearTimeout(pending.timer);pending.reject(new Error('stopped'));}
+        ptzPending.clear();
         hideControls();
         clearTimeout(resizeTimer);
         clearTimeout(fullscreenFeedbackTimer);
@@ -2034,6 +2216,8 @@
       }
       async function start(msg) {
         if (starting || player || stopping) return;
+        ptzSupported=false;ptzDirections=[];ptzBusy=false;ptzOpen=false;updatePtzCapability();
+        ptzPanel.hidden=true;ptzDismiss.hidden=true;document.body.classList.remove('ptz-open');
         micGate?.setTalkIntent?.(false,'player-start');
         initialMuted=msg.muted!==false;
         soundOn=false;
@@ -2133,6 +2317,14 @@
           currentId=data.id;
           start(data);
         }
+        else if(data.command==='PTZ_RESULT'&&currentId===data.id){
+          const pending=ptzPending.get(data.requestId);
+          if(pending){
+            ptzPending.delete(data.requestId);clearTimeout(pending.timer);
+            if(data.result?.ok)pending.resolve(data.result);
+            else pending.reject(new Error(data.result?.reason||'ptz_unavailable'));
+          }
+        }
         else if(data.command==='STOP'&&currentId===data.id)stop();
       });
       // Hover controls on desktop; touchscreen taps toggle them without
@@ -2160,13 +2352,16 @@
           if(firstFrame)scheduleHide(3000);
           return;
         }
-        if(!firstFrame||stopping)return;
+        if(!firstFrame||stopping||ptzOpen)return;
         if(document.body.classList.contains('controls-visible'))hideControls();
         else showControls(true);
       },{capture:true,passive:true});
       document.addEventListener('pointercancel',()=>{touchStart=null;},{capture:true,passive:true});
-      document.addEventListener('focusin',()=>showControls(true));
+      document.addEventListener('focusin',()=>{if(!ptzOpen)showControls(true);});
       document.addEventListener('focusout',()=>scheduleHide(800));
+      document.addEventListener('visibilitychange',()=>{if(document.hidden)closePtz(true);});
+      window.addEventListener('blur',()=>{if(ptzOpen)closePtz(true);});
+      document.addEventListener('keydown',event=>{if(event.key==='Escape'&&ptzOpen){event.preventDefault();closePtz();}});
       btnStop.addEventListener('click',()=>{
         if(!player||!firstFrame||stopping)return;
         signal('STOP_REQUEST');
@@ -2290,6 +2485,7 @@
         }
       });
       window.addEventListener('pagehide',()=>{
+        closePtz(true);
         try{if(fullscreenActive||hasNativeFullscreen())leaveFullscreen();}catch(_){}
         try{releasePiP();}catch(_){}
         try{player?.stop?.();}catch(_){}

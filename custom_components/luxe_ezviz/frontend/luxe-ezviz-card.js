@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.0.0';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.0';
 
   const ICON_PLAY = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12.1 6.7 C10.2 5.6 9.3 6.9 9.3 9.2 L9.3 22.8 C9.3 25.1 10.2 26.4 12.1 25.3 L25.1 18 C27.7 16.5 27.7 15.5 25.1 14 Z"/></svg>';
   const HTML = `
@@ -376,6 +376,11 @@
         return;
       }
       if(data.id!==this._id)return;
+      if(data.state==='PTZ_RPC'){
+        // Only messages from our live iframe with a matching playback id.
+        void this._handlePtzRpc(data);
+        return;
+      }
       if(data.state==='FIRST_FRAME'){
         if(this._state!=='loading')return;
         clearTimeout(this._timer);this._setState('live');
@@ -399,6 +404,36 @@
       }else if(data.state==='ERROR'){
         if(this._state==='loading'||this._state==='live')this._fail(data.reason);
       }
+    }
+    async _handlePtzRpc(data){
+      const requestId=data.requestId;
+      if(!Number.isSafeInteger(requestId)||requestId<1||!this._config?.device_serial)return;
+      const action=data.action;
+      if(!['capability','pulse','start','stop','heartbeat'].includes(action))return;
+      if(action!=='stop'&&this._state!=='live')return;
+      const serial=this._config.device_serial;
+      const frame=this._iframe,id=this._id;
+      if(!frame||!id||!this._hass?.callApi)return;
+      let result;
+      try{
+        if(action==='capability'){
+          result=await this._hass.callApi('GET',`luxe_ezviz/ptz/capability?device_serial=${encodeURIComponent(serial)}`);
+        }else{
+          const payload={device_serial:serial,action};
+          if(action==='pulse'||action==='start')payload.direction=data.direction;
+          result=await this._hass.callApi('POST','luxe_ezviz/ptz/control',payload);
+        }
+      }catch(_){result={ok:false,reason:'ptz_request_failed'};}
+      if(this._iframe!==frame||this._id!==id)return;
+      try{frame.contentWindow?.postMessage({type:'LUXE_EZVIZ_PARENT',id,
+        command:'PTZ_RESULT',requestId,result},location.origin);}catch(_){}
+    }
+    _ptzEmergencyStop(){
+      const serial=this._config?.device_serial;
+      if(!serial||!this._hass?.callApi)return;
+      // Best effort; the server-side PTZ watchdog also handles lost requests.
+      void this._hass.callApi('POST','luxe_ezviz/ptz/control',
+        {device_serial:serial,action:'stop'}).catch(()=>{});
     }
     _fail(reason){
       if(this._state!=='loading'&&this._state!=='live')return;
@@ -424,6 +459,7 @@
       // The existing STOP fallback owns iframe cleanup; don't duplicate it.
     }
     _stop(reset=true,reason='unspecified'){
+      this._ptzEmergencyStop();
       clearTimeout(this._disconnectTimer);this._disconnectTimer=null;
       this._setPipVisual(false,'stop');
       if(this._state==='stopping'){if(reset)this._stopReset=true;return;}

@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Development status:** `v1.0.0 (release candidate, not yet published)` HACS packaging candidate based on the verified v1.0.36 Luxe EZVIZ codebase. Not an official EZVIZ product.
+**Development status:** `v1.1.0 (PTZ release candidate, not yet published)` HACS packaging candidate based on the verified v1.0.36 Luxe EZVIZ codebase. Not an official EZVIZ product.
 
 ## HACS installation
 
@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.0.0-rc1
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.0
       type: module
 ```
 
@@ -45,3 +45,15 @@ Use GitHub tags/releases and keep `manifest.json` and `frontend_setup.py` versio
 ## Diagnostics
 
 If the custom card does not load, visit `/luxe_ezviz/static/luxe-ezviz-card.js`; if playback fails, check `/luxe_ezviz/sdk/ezuikit.js` and HA logs for SDK provisioning failures. Do not publish access tokens, device verification codes, or serial numbers in public issues.
+
+## PTZ controls (v1.1.0 candidate)
+
+The player checks the selected camera's cloud capability set. Supported cameras show a four-direction PTZ button directly above the screenshot button after live playback starts. Unsupported/unknown devices show no PTZ entry. Opening the translucent panel hides the other video controls; tap outside the panel to close it (there is no close button).
+
+- Tap an arrow for a short movement; press and hold for continuous movement.
+- Releasing, pointer cancellation, leaving the control area, closing the panel, stopping the video or leaving the dashboard sends a stop request.
+- The HA backend also stops movement if no heartbeat arrives for 2.5 seconds.
+- The control endpoints require an authenticated HA administrator and never expose EZVIZ cloud credentials to the card.
+- Directional support is based on the official `device/capacity` API, not camera model names.
+- **Release testing:** Test on a real PTZ camera and a non-PTZ camera before publishing the v1.1.0 GitHub Release.
+

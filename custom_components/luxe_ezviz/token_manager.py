@@ -124,3 +124,11 @@ class EzvizTokenManager:
 
     async def async_delete(self) -> None:
         await self._store.async_remove()
+
+    async def async_ptz_capability(self, serial: str) -> dict:
+        return await self._with_token(lambda token: self._client.async_ptz_capability(token, serial))
+
+    async def async_ptz_control(self, serial: str, channel: int, action: str, direction: int) -> None:
+        return await self._with_token(
+            lambda token: self._client.async_ptz_control(token, serial, channel, action, direction)
+        )

@@ -1,0 +1,69 @@
+{
+  "title": "Luxe EZVIZ",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure EZVIZ camera",
+        "description": "Add one camera per entry. The serial number is its unique identity; the initial display name comes from EZVIZ Cloud and can later be renamed in Home Assistant. The verification code is checked during playback. Optionally upload a product image; no upload means no image.",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "AppSecret",
+          "device_serial": "Device serial number",
+          "verify_code": "Video encryption verification code",
+          "channel": "Video channel",
+          "product_image": "Product image (optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Luxe EZVIZ",
+        "description": "Leave AppSecret or verification code blank to keep the saved value. This form will not reveal the stored secrets.",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "New AppSecret (blank to keep)",
+          "device_serial": "Device serial number",
+          "verify_code": "New verification code (blank to keep)",
+          "channel": "Video channel"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update EZVIZ application credentials",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "AppSecret"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "AppKey/AppSecret are invalid, or the token was rejected.",
+      "device_permission": "Developer application is not authorized to access this device.",
+      "cannot_connect": "Cannot reach EZVIZ Cloud. Try again later.",
+      "invalid_serial": "The device serial number is invalid.",
+      "invalid_channel": "This camera does not have the selected video channel.",
+      "missing_credentials": "AppSecret and video verification code are required.",
+      "device_not_found": "No device found with that serial number.",
+      "encryption_unknown": "Cannot determine video encryption status; please retry.",
+      "invalid_image": "Invalid product image. Use PNG, JPEG, or WebP under 8 MB."
+    },
+    "abort": {
+      "already_configured": "This camera is already configured.",
+      "unique_id_mismatch": "The device serial number cannot be changed by reconfiguration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Camera product image",
+        "description": "Upload or replace an image, or remove the current one. No image is shown if none is uploaded. This only affects the current camera.",
+        "data": {
+          "product_image": "Upload or replace image (optional)",
+          "remove_product_image": "Remove current image"
+        }
+      }
+    },
+    "error": {
+      "invalid_image": "Invalid product image. Use PNG, JPEG, or WebP under 8 MB.",
+      "image_conflict": "Cannot upload and remove at the same time.",
+      "image_error": "Could not remove image."
+    }
+  }
+}

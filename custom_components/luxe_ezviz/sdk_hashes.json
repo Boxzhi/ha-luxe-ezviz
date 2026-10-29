@@ -1,0 +1,20 @@
+{
+  "version": "9.0.5",
+  "source": "https://registry.npmjs.org/ezuikit-js/-/ezuikit-js-9.0.5.tgz",
+  "files": {
+    "ezuikit.js": "162bc47f1bfe042d5e8db16b79619f77e92354fd5d0c5029234a21833799aee4",
+    "ezuikit_static/PlayCtrlWasm/playCtrl1/HasSIMD/Decoder.js": "1227f68e8caeec77734a7966f4f887667dc4632253b72782a386d0ea84bc901a",
+    "ezuikit_static/PlayCtrlWasm/playCtrl1/NoSIMD/Decoder.js": "028b8fbd2f8000f575463e4e158dfe8f21f087b0f40b5be3e40eec4e3619e97a",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.js": "c4394d950ffeba808c5021b592a97797bdc45bd7634698e0bb01365683d9e250",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.wasm": "5a08695556173da5f9c9d21ab933eba2a17f87e53428f7481c7c334fa6e4c967",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.worker.js": "26650f36b5e1d7078e9b16d1b1a034ef1b021fdd4dc6e430383559c6e4fb5d82",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.js": "2c6d0c08fee9f19d68052839568dd5ef1d930081bfaa099885addf8b3721b531",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.wasm": "b347fc92d4b54e66745632c99c17a6bef8b938dd61391d5a83cee30a15f36427",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.worker.js": "26650f36b5e1d7078e9b16d1b1a034ef1b021fdd4dc6e430383559c6e4fb5d82",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.js": "4dda6ca27d97d49b3656e329747806b8f217ca14886ec3310df367bedc90cd55",
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.wasm": "7bf63ec321a0780611faab0dc36684fe5ab2c7709f64d7ac17844ede2fadb900",
+    "ezuikit_static/talk/adapeter.js": "fb4a2a05eb8cc7ed8d4bbb3ca4a2461f922380d86ab07f5c85ec25ca1ad622c6",
+    "ezuikit_static/talk/janus.js": "8144b7ac9d1b1da7bc4eddb38db1838dc981c565e83ee0f2c75b774dff4bce58",
+    "ezuikit_static/talk/tts-v4.js": "1ab56cb7997dff37053e504bfc870e3bcf49e0793924d17175dd555516cb8b12"
+  }
+}

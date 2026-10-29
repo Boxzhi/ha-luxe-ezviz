@@ -1,0 +1,69 @@
+{
+  "title": "Luxe EZVIZ",
+  "config": {
+    "step": {
+      "user": {
+        "title": "配置萤石摄像机",
+        "description": "每台萤石摄像机单独配置；使用设备序列号唯一识别，显示名称自动从萤石云获取，之后可在 Home Assistant 中修改。视频验证码需要在实际播放时验证。 可选上传产品图；未上传则不展示。",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "AppSecret",
+          "device_serial": "设备序列号",
+          "verify_code": "视频加密验证码",
+          "channel": "视频通道（通常为 1）",
+          "product_image": "摄像机产品图片（选填）"
+        }
+      },
+      "reconfigure": {
+        "title": "修改 Luxe EZVIZ 配置",
+        "description": "AppSecret、验证码留空表示保留原值；不会显示之前保存的密钥。设备序列号不可改为另一台设备。",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "新 AppSecret（留空保留）",
+          "device_serial": "设备序列号",
+          "verify_code": "新视频验证码（留空保留）",
+          "channel": "视频通道"
+        }
+      },
+      "reauth_confirm": {
+        "title": "更新萤石应用凭据",
+        "data": {
+          "app_key": "AppKey",
+          "app_secret": "AppSecret"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "AppKey 或 AppSecret 不正确，或 Token 被拒绝。",
+      "device_permission": "当前开发者应用无权访问此设备。",
+      "cannot_connect": "萤石云连接异常，请稍后重试。",
+      "invalid_serial": "设备序列号不合法，请核对后重试。",
+      "invalid_channel": "该摄像机不存在所选的视频通道。",
+      "missing_credentials": "必须填写 AppSecret 和视频加密验证码。",
+      "device_not_found": "未找到该设备，请核对设备序列号和绑定情况。",
+      "encryption_unknown": "无法确定设备的视频加密状态，请检查设备信息后重试。",
+      "invalid_image": "图片无效，请上传 8MB 内的 PNG、JPEG 或 WebP 图片。"
+    },
+    "abort": {
+      "already_configured": "摄像机已经配置。",
+      "unique_id_mismatch": "重新配置不能更换为另一台摄像机的序列号。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "摄像机产品图片管理",
+        "description": "选择图片上传/替换；或勾选移除。未上传时不显示产品图。仅影响当前摄像机。",
+        "data": {
+          "product_image": "上传或更换产品图片（选填）",
+          "remove_product_image": "移除当前产品图片"
+        }
+      }
+    },
+    "error": {
+      "invalid_image": "图片无效，请上传 8MB 内的 PNG、JPEG 或 WebP 图片。",
+      "image_conflict": "不能同时上传和移除图片。",
+      "image_error": "移除图片失败，请检查存储权限。"
+    }
+  }
+}

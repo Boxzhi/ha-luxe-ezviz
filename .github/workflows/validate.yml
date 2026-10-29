@@ -1,0 +1,23 @@
+name: Validate Luxe EZVIZ
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check Python syntax and HACS metadata
+        run: |
+          python -m compileall -q custom_components/luxe_ezviz
+          python -m json.tool custom_components/luxe_ezviz/manifest.json > /dev/null
+          python -m json.tool hacs.json > /dev/null
+          python -m json.tool custom_components/luxe_ezviz/sdk_hashes.json > /dev/null
+      - name: Offline source package regressions
+        run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify card syntax
+        run: node --check custom_components/luxe_ezviz/frontend/luxe-ezviz-card.js

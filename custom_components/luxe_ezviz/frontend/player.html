@@ -1,0 +1,2310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <script>
+    // Mic permission gate, restored from the probe26 approach and hardened for
+    // browsers that expose getUserMedia through the MediaDevices prototype.
+    // No microphone permission or stream is requested during regular playback.
+    (()=>{
+      const key='__luxeEzvizMicGate';
+      if(window[key])return;
+      let talkIntent=false;
+      const marker='__luxeEzvizMicGateWrapped';
+      const blockedError=()=>{
+        try{return new DOMException('麦克风仅在用户主动开始对讲后允许访问','NotAllowedError');}
+        catch(_){const e=new Error('麦克风仅在用户主动开始对讲后允许访问');e.name='NotAllowedError';return e;}
+      };
+      const needsAudio=constraints=>Boolean(constraints&&typeof constraints==='object'&&constraints.audio);
+      const wrap=(target,name,legacy=false)=>{
+        if(!target)return false;
+        let original;
+        try{original=target[name];}catch(_){return false;}
+        if(typeof original!=='function')return true;
+        if(original[marker])return true;
+        const guarded=function(...args){
+          if(needsAudio(args[0])&&!talkIntent){
+            const error=blockedError();
+            if(legacy){
+              // Legacy getUserMedia(constraints, success, failure) uses a callback.
+              if(typeof args[2]==='function'){try{args[2](error);}catch(_){}}
+              return;
+            }
+            return Promise.reject(error);
+          }
+          return original.apply(this,args);
+        };
+        try{Object.defineProperty(guarded,marker,{value:true});}catch(_){guarded[marker]=true;}
+        try{
+          Object.defineProperty(target,name,{configurable:true,enumerable:false,writable:true,value:guarded});
+          if(target[name]===guarded)return true;
+        }catch(_){}
+        try{target[name]=guarded;if(target[name]===guarded)return true;}catch(_){}
+        return false;
+      };
+      const install=()=>{
+        const md=navigator.mediaDevices;
+        // Install on both the actual MediaDevices object and its prototype;
+        // third-party code can invoke MediaDevices.prototype.getUserMedia directly.
+        if(md){
+          wrap(md,'getUserMedia');
+          const proto=Object.getPrototypeOf(md);
+          if(proto)wrap(proto,'getUserMedia');
+        }
+        wrap(navigator,'getUserMedia',true);
+        wrap(navigator,'webkitGetUserMedia',true);
+        wrap(navigator,'mozGetUserMedia',true);
+        const modernOk=!md||typeof md.getUserMedia!=='function'||Boolean(md.getUserMedia[marker]);
+        const legacyOk=['getUserMedia','webkitGetUserMedia','mozGetUserMedia'].every(name=>
+          typeof navigator[name]!=='function'||Boolean(navigator[name][marker]));
+        return Boolean(modernOk&&legacyOk);
+      };
+      const api={
+        setTalkIntent(value){talkIntent=Boolean(value);},
+        hasTalkIntent(){return talkIntent;},
+        install,
+        isProtected:install
+      };
+      try{Object.defineProperty(window,key,{configurable:false,value:api});}catch(_){window[key]=api;}
+      install();
+    })();
+  </script>
+  <meta name="referrer" content="no-referrer">
+  <title>Luxe EZVIZ Player</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#03070a}
+    #video{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
+    /* High-DPI inner EZUIKit stage: the SDK paints into a larger backing canvas,
+       while this transform keeps the visible player aligned with the outer viewport. */
+    #video-renderer{position:absolute!important;left:0!important;top:0!important;
+      transform:scale(var(--luxe-render-inverse,1));transform-origin:top left;overflow:hidden}
+    /* Chromium fullscreen promotes the iframe in HA's ShadowRoot, not the
+       inner HTML document. The SDK keeps its previous pixel width on #video.
+       Make the visible iframe the coordinate space and override SDK dimensions
+       only while that iframe is in native fullscreen. */
+    html.luxe-host-fullscreen body{position:relative!important;
+      height:var(--luxe-host-frame-height,100%)!important}
+    html.luxe-host-fullscreen #video{
+      position:absolute!important;inset:auto!important;
+      left:var(--luxe-fs-video-left,0px)!important;
+      top:var(--luxe-fs-video-top,0px)!important;
+      width:var(--luxe-fs-video-width,100%)!important;
+      height:var(--luxe-fs-video-height,100%)!important
+    }
+    /* WebKit can promote the inner <html> to the fullscreen top layer without
+       updating the iframe layout viewport. Size the existing SDK stage from
+       explicit screen geometry, with letterboxing rather than stretching. */
+    html:fullscreen,html:-webkit-full-screen{position:relative!important}
+    html:fullscreen #video,html:-webkit-full-screen #video{
+      position:absolute!important;inset:auto!important;
+      left:var(--luxe-fs-video-left,0px)!important;
+      top:var(--luxe-fs-video-top,0px)!important;
+      width:var(--luxe-fs-video-width,100%)!important;
+      height:var(--luxe-fs-video-height,100%)!important
+    }
+    /* A single cached frame bridges the native fullscreen animation while
+       EZUIKit resizes, in either direction. Never intercept controls. */
+    #transition-frame{position:absolute;inset:0;width:100%;height:100%;
+      object-fit:contain;background:#03070a;z-index:3;pointer-events:none;
+      opacity:1;transition:opacity .10s ease-out}
+    #transition-frame[hidden]{display:none!important}
+    #shade{position:absolute;bottom:0;left:0;right:0;height:78px;z-index:4;
+      background:linear-gradient(transparent,rgba(0,0,0,.48));opacity:0;pointer-events:none;
+      transition:opacity .22s ease}
+    #quality-switch-overlay{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center;
+      background:rgba(3,7,10,.58);color:rgba(255,255,255,.82);
+      font:12px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;pointer-events:none}
+    #quality-switch-overlay[hidden]{display:none!important}
+    .quality-switch-spinner{width:29px;height:29px;border-radius:50%;
+      border:2px solid rgba(255,255,255,.22);border-top-color:#fff;
+      animation:quality-switch-spin 1s linear infinite}
+    @keyframes quality-switch-spin{to{transform:rotate(360deg)}}
+    #controls{position:absolute;left:8px;right:8px;bottom:7px;
+      z-index:5;display:flex;align-items:center;justify-content:space-between;
+      opacity:0;visibility:hidden;transform:translateY(3px);pointer-events:none;
+      transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
+    body.live.controls-visible #controls{opacity:1;visibility:visible;transform:translateY(0);
+      transition:opacity .18s ease,transform .18s ease;pointer-events:auto}
+    body.live.controls-visible #shade{opacity:1}
+    /* Screenshot: independent right-edge control, vertically centered in the video frame.
+       Visibility mirrors the bottom controls without inheriting their bottom anchoring. */
+    #screenshot{position:absolute;top:50%;right:8px;z-index:5;
+      opacity:0;visibility:hidden;transform:translateY(calc(-50% + 3px));pointer-events:none;
+      transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
+    body.live.controls-visible #screenshot{opacity:1;visibility:visible;
+      transform:translateY(-50%);pointer-events:auto;
+      transition:opacity .18s ease,transform .18s ease}
+    /* Card mode does not use the phone safe-area; real fullscreen does. */
+    body.fullscreen-active #controls{bottom:max(7px,env(safe-area-inset-bottom))}
+    .cluster{display:flex;align-items:center;gap:4px}
+    .control{appearance:none;display:inline-flex;align-items:center;justify-content:center;
+      flex:0 0 36px;width:36px;height:36px;margin:0;padding:0;cursor:pointer;
+      color:#fff;background:transparent;border:0;border-radius:8px;
+      touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+    .control:disabled{opacity:.55;cursor:default}
+    .control:hover,.control:focus-visible{background:rgba(255,255,255,.14)}
+    .control:focus-visible{outline:2px solid rgba(255,255,255,.86);outline-offset:1px}
+    .control svg{display:block;flex:none;width:22px;height:22px;stroke:currentColor;
+      stroke-width:2.05;fill:none;stroke-linejoin:round;stroke-linecap:round;pointer-events:none}
+    #fullscreen svg{width:22px;height:22px}
+    #screenshot svg{width:23px;height:23px;stroke-width:1.98}
+    #pip svg{width:26px;height:26px;stroke-width:1.75}
+    #stop svg{width:24px;height:24px;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+    .control[hidden]{display:none!important}
+    /* Keep the hidden native-media source aligned with the whole card.
+       iOS fullscreen/PiP dismiss animations return to this element's box.
+       A 2x2px top-left source makes the system animate back into the corner. */
+    #pip-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+      opacity:0;pointer-events:none;z-index:-1}
+    #sound svg{width:23px;height:23px}
+    #talk svg{width:22px;height:22px}
+    #talk.talk-active{background:rgba(149,72,88,.92);color:#fff}
+    #talk.talk-active:hover,#talk.talk-active:focus-visible{background:rgba(165,78,96,.98)}
+    /* Quality selector sits immediately left of the volume control. */
+    #quality{flex:0 0 74px;width:74px;height:32px;border:1px solid rgba(236,243,252,.48);
+      border-radius:18px;padding:0 7px;font:500 14px/1 -apple-system,BlinkMacSystemFont,sans-serif;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:rgba(8,14,22,.3)}
+    #quality[aria-expanded="true"]{background:rgba(30,48,70,.92);border-color:rgba(235,243,255,.8)}
+    /* Compact menu styled after EZVIZ's official quality selector. Four common
+       levels fit without a scrollbar; extra device-provided levels remain scrollable. */
+    #quality-menu{position:absolute;right:73px;bottom:49px;z-index:9;width:104px;
+      max-width:calc(100vw - 20px);max-height:min(72vh,360px);overflow:auto;padding:4px;
+      display:flex;flex-direction:column;gap:2px;border:1px solid rgba(225,236,250,.12);
+      border-radius:8px;background:rgba(3,5,9,.67);backdrop-filter:blur(10px);
+      -webkit-backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(0,0,0,.34);
+      scrollbar-width:none;-ms-overflow-style:none}
+    #quality-menu::-webkit-scrollbar{display:none}
+    #quality-menu[hidden]{display:none!important}
+    #quality-menu-list{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .quality-option{appearance:none;flex:0 0 auto;width:100%;min-height:31px;padding:4px 8px;
+      border:0;border-radius:6px;background:transparent;color:#edf2f9;text-align:center;
+      font:14px/1.35 -apple-system,BlinkMacSystemFont,sans-serif;cursor:pointer;
+      touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+    .quality-option:hover,.quality-option:focus-visible{background:rgba(255,255,255,.055);outline:none}
+    .quality-option[aria-checked="true"]{color:#438cff;background:transparent;font-weight:600}
+    .quality-option:disabled{opacity:.55;cursor:wait}
+    .quality-empty{padding:12px 8px;color:#aeb9c8;text-align:center;font:12px/1.5 -apple-system,BlinkMacSystemFont,sans-serif}
+    #toast{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;
+      max-width:92%;padding:6px 10px;border-radius:7px;background:rgba(12,20,31,.8);
+      font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#f0f3f8;
+      pointer-events:none;opacity:0;transition:opacity .2s ease}
+    #toast.on{opacity:1}
+    @media(prefers-reduced-motion:reduce){#shade,#controls,#screenshot,#toast{transition:none}.quality-switch-spinner{animation-duration:1.8s}}
+  </style>
+</head>
+<body>
+  <div id="video"><div id="video-renderer"></div></div>
+  <canvas id="transition-frame" aria-hidden="true" hidden></canvas>
+  <div id="shade" aria-hidden="true"></div>
+  <div id="quality-switch-overlay" hidden aria-live="polite" aria-label="正在切换清晰度">
+    <span class="quality-switch-spinner" aria-hidden="true"></span>
+    <div id="quality-switch-message">正在切换清晰度…</div>
+  </div>
+  <div id="controls" aria-label="视频控制">
+    <div class="cluster">
+      <button class="control" id="fullscreen" type="button" aria-label="全屏" title="全屏">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+      </button>
+      <button class="control" id="pip" type="button" aria-label="进入画中画" title="画中画（试验）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 9V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7"/><rect x="12" y="12" width="9" height="7" rx="1"/></svg>
+      </button>
+      <button class="control" id="stop" type="button" aria-label="停止播放" title="停止播放">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5v14M15.5 5v14"/></svg>
+      </button>
+    </div>
+    <div class="cluster">
+      <button class="control" id="quality" type="button" aria-label="切换清晰度" title="切换清晰度" aria-expanded="false" aria-haspopup="menu">清晰度</button>
+      <button class="control" id="talk" type="button" aria-label="开始对讲" title="开始对讲" aria-pressed="false" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></svg>
+      </button>
+      <button class="control" id="sound" type="button" aria-label="开启声音" title="开启声音" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/></svg>
+      </button>
+    </div>
+  </div>
+  <!-- Right-hand screenshot button; outside the bottom control strip. -->
+  <button class="control" id="screenshot" type="button" aria-label="保存当前画面截图" title="截图">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.25 4h-4.5L7.5 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2.5z"/><circle cx="12" cy="13.5" r="3"/></svg>
+  </button>
+  <div id="quality-menu" role="menu" aria-label="选择视频清晰度" hidden>
+    <div id="quality-menu-list"></div>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <video id="pip-video" playsinline muted aria-hidden="true"></video>
+  <script src="/luxe_ezviz/sdk/ezuikit.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const iframeOrigin = location.origin;
+      let currentId = null;
+      let player = null;
+      let starting = false;
+      let stopping = false;
+      let firstFrame = false;
+      let firstFrameAt = 0;
+      let firstFrameSignaled = false;
+      let initialMuted = true;
+      let initialSoundSyncBusy = false;
+      let soundOn = false;
+      let soundBusy = false;
+      let talkActive = false;
+      // Fail closed: the talk control is shown only after EZUIKit confirms support_talk === 1.
+      let talkSupported = false;
+      let talkBusy = false;
+      let talkStopping = false;
+      let talkStartInvoked = false;
+      let talkPreviousSoundOn = false;
+      let talkAttemptGeneration = 0;
+      let talkStartResolver = null;
+      let talkStartTimeout = null;
+      let qualityOptions = [];
+      let qualityCurrentLevel = null;
+      let qualityCurrentConfirmed = false;
+      let qualityPendingVerification = false;
+      let qualityEventCandidate = null;
+      let qualityEventCandidateAt = 0;
+      let qualityBusy = false;
+      let qualityRequestedLevel = null;
+      let qualityListTimedOut = false;
+      let qualityListTimer = null;
+      let qualityInitialSyncTimer = null;
+      let qualityVerificationGeneration = 0;
+      let qualityLatestStreamInfo = null;
+      let qualityLatestStreamAt = 0;
+      let qualityLatestStreamKey = null;
+      let qualityLatestStreamStableCount = 0;
+      let qualityChangeStartedAt = 0;
+      let qualityChangeResolvedAt = 0;
+      let qualityChangeStreamKey = null;
+      let qualityChangeStreamStableCount = 0;
+      let qualityChangeLatestStreamInfo = null;
+      let qualityStreamResyncTimer = null;
+      let qualityStreamResyncGeneration = 0;
+      let qualityLatestVideoInfo = null;
+      let qualityLatestVideoInfoAt = 0;
+      let qualitySwitchOverlayTimer = null;
+      let qualitySwitchOverlayGeneration = 0;
+      let hideTimer = null;
+      let toastTimer = null;
+      let touchStart = null;
+      let screenshotBusy = false;
+      let pipBusy = false;
+      let pipStream = null;
+      // iOS native fullscreen controls operate on pipVideo, while EZUIKit audio
+      // is controlled by player.openSound()/closeSound(). A silent audio track
+      // makes the native mute control available; volumechange bridges it to SDK audio.
+      let pipSilentAudioContext = null;
+      let pipSilentAudioTrack = null;
+      let pipSilentAudioOscillator = null;
+      let pipSilentAudioGain = null;
+      let nativeSoundSyncBusy = false;
+      let nativeMuteExpected = null;
+      let nativeResumeTimer = null;
+      let nativeResumeGeneration = 0;
+      let pipResumeTimer = null;
+      let pipResumeGeneration = 0;
+      let firstFrameAudioFallbackTimer = null;
+      let pipActive = false;
+      let pipPreparing = false;
+      let pipPreparation = null;
+      let pipPrewarmTimer = null;
+      let pipReleaseInProgress = false;
+      let pipLastMode = null;
+      let fullscreenActive = false;
+      let fullscreenMode = null;
+      let nativeFullscreenVideo = null;
+      let nativeFullscreenPresentationListener = null;
+      let fullscreenBusy = false;
+      let resizeTimer = null;
+      let fullscreenLayoutTimer = null;
+      let fullscreenFeedbackTimer = null;
+      let embeddedSizeBeforeFullscreen = null;
+      let embeddedRestoreTimers = [];
+      let embeddedRestoreVersion = 0;
+      let embeddedRestoring = false;
+      let canvasFitOverride = null;
+      let hostLayoutSignature = null;
+      let safariLayoutSignature = null;
+      let lastNativeResize = null;
+      let transitionBridgeActive = false;
+      let transitionBridgeTimer = null;
+      // Entry bridge is separate from the verified exit bridge; both reuse the
+      // same single overlay, but may never be active simultaneously.
+      let entryBridgeActive = false;
+      let entryBridgeReleasing = false;
+      let entryBridgeFallbackTimer = null;
+      let entryBridgeReleaseTimer = null;
+      let entryBridgeCheckTimer = null;
+      let entryBridgeBaseline = null;
+      const micGate = window.__luxeEzvizMicGate;
+      const standardPiP = Boolean(document.pictureInPictureEnabled &&
+        typeof HTMLVideoElement !== 'undefined' &&
+        typeof HTMLVideoElement.prototype.requestPictureInPicture === 'function');
+      const webkitPiP = Boolean(typeof HTMLVideoElement !== 'undefined' &&
+        typeof HTMLVideoElement.prototype.webkitSetPresentationMode === 'function');
+      // Prefer Safari/WebKit's native presentation-mode API. Unlike Chrome,
+      // WebKit can reject requestPictureInPicture() after an awaited play().
+      const isWebKit = /AppleWebKit/i.test(navigator.userAgent) &&
+        !/(Chrome|Chromium|Edg|OPR)\//i.test(navigator.userAgent);
+      const isIOSDevice = /iPhone|iPod|iPad/i.test(navigator.userAgent);
+      const supportsPiP = standardPiP || webkitPiP;
+      const vid = document.getElementById('video');
+      const renderer = document.getElementById('video-renderer');
+      let activeRenderScale = 1;
+      const bridgeCanvas = document.getElementById('transition-frame');
+      const btnStop = document.getElementById('stop');
+      const buttonQuality = document.getElementById('quality');
+      const qualityMenu = document.getElementById('quality-menu');
+      const qualityMenuList = document.getElementById('quality-menu-list');
+      const buttonSound = document.getElementById('sound');
+      const buttonTalk = document.getElementById('talk');
+      buttonTalk.hidden = true;
+      const buttonFull = document.getElementById('fullscreen');
+      const buttonShot = document.getElementById('screenshot');
+      const buttonPiP = document.getElementById('pip');
+      const qualitySwitchOverlay = document.getElementById('quality-switch-overlay');
+      const qualitySwitchMessage = document.getElementById('quality-switch-message');
+      const pipVideo = document.getElementById('pip-video');
+      const ownFrame = (()=>{try{return window.frameElement;}catch(_){return null;}})();
+      const hostDocument = (()=>{try{return ownFrame?.ownerDocument||null;}catch(_){return null;}})();
+      // In Home Assistant, the iframe lives in the custom card's ShadowRoot.
+      // Chromium retargets document.fullscreenElement to the shadow HOST
+      // (e.g. HOME-ASSISTANT), while shadowRoot.fullscreenElement is the iframe.
+      // Check both roots so successful Chrome fullscreen isn't misclassified.
+      const frameRoot = (()=>{try{return ownFrame?.getRootNode?.()||null;}catch(_){return null;}})();
+      const fullscreenElement = doc => doc?.fullscreenElement || doc?.webkitFullscreenElement || null;
+      const isHostFullscreen = () => Boolean(ownFrame && (
+        fullscreenElement(hostDocument) === ownFrame ||
+        fullscreenElement(frameRoot) === ownFrame));
+      const isInnerFullscreen = () => Boolean(fullscreenElement(document));
+      const hasNativeFullscreen = () => isHostFullscreen() || isInnerFullscreen();
+      buttonPiP.hidden = !supportsPiP;
+      const toast = document.getElementById('toast');
+      const vendorReady = Boolean(window.EZUIKit?.EZUIKitPlayer);
+      const signal = (state, reason) => {
+        if (!currentId) return;
+        window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',id:currentId,state,...(reason?{reason}:{})},iframeOrigin);
+      };
+      const cleanError = (error) => {
+        const s = String(error?.data?.nErrorCode ?? error?.code ?? error?.type ?? 'playback_error');
+        return /^[A-Za-z0-9_.-]{1,40}$/.test(s) ? s : 'playback_error';
+      };
+      const scheduleHide = (time=3000) => {
+        clearTimeout(hideTimer);
+        if(!qualityMenu.hidden)return;
+        hideTimer = setTimeout(() => {
+          if (!qualityMenu.hidden)return;
+          if (!document.querySelector('#controls:focus-within'))
+            document.body.classList.remove('controls-visible');
+        },time);
+      };
+      const showControls = (isTouch=false) => {
+        if (!firstFrame || stopping) return;
+        document.body.classList.add('controls-visible');
+        clearTimeout(hideTimer);
+        if (isTouch) scheduleHide(3000);
+      };
+      const hideControls = () => {
+        clearTimeout(hideTimer);
+        qualityMenu.hidden=true;
+        buttonQuality.setAttribute('aria-expanded','false');
+        document.body.classList.remove('controls-visible');
+      };
+      const showToast = (value) => {
+        toast.textContent=value;
+        toast.classList.add('on');
+        clearTimeout(toastTimer);
+        toastTimer=setTimeout(()=>toast.classList.remove('on'),2300);
+      };
+      const hideQualitySwitchOverlay = (reason='hidden') => {
+        clearTimeout(qualitySwitchOverlayTimer);qualitySwitchOverlayTimer=null;
+        qualitySwitchOverlayGeneration++;
+        const wasVisible=!qualitySwitchOverlay.hidden;
+        qualitySwitchOverlay.hidden=true;
+        if(wasVisible){}
+      };
+      const showQualitySwitchOverlay = label => {
+        clearTimeout(qualitySwitchOverlayTimer);qualitySwitchOverlayTimer=null;
+        const generation=++qualitySwitchOverlayGeneration;
+        qualitySwitchMessage.textContent=`正在切换至「${label}」…`;
+        qualitySwitchOverlay.hidden=false;
+        qualitySwitchOverlayTimer=setTimeout(()=>{
+          if(generation!==qualitySwitchOverlayGeneration||qualitySwitchOverlay.hidden)return;
+          hideQualitySwitchOverlay('timeout');
+          showToast('清晰度切换耗时较长，请确认画面是否恢复');
+        },8000);
+      };
+      const updateSoundUI = () => {
+        buttonSound.setAttribute('aria-pressed',String(soundOn));
+        buttonSound.setAttribute('title',soundOn?'关闭声音':'开启声音');
+        buttonSound.setAttribute('aria-label',soundOn?'关闭声音':'开启声音');
+        buttonSound.querySelector('svg').innerHTML=soundOn?
+          '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8a5 5 0 0 1 0 8"/><path d="M18 5a9 9 0 0 1 0 14"/>':
+          '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/>';
+        buttonSound.disabled=Boolean(talkActive||talkBusy||soundBusy||!player||!firstFrame||stopping);
+      };
+      const updateTalkUI = () => {
+        buttonTalk.hidden = !talkSupported;
+        buttonTalk.setAttribute('aria-pressed',String(talkActive));
+        buttonTalk.classList.toggle('talk-active',talkActive);
+        const label=talkActive?'结束对讲':talkBusy?(talkStopping?'正在结束对讲…':'正在连接对讲…'):'开始对讲';
+        buttonTalk.setAttribute('title',label);
+        buttonTalk.setAttribute('aria-label',label);
+        buttonTalk.disabled=Boolean(!player||!firstFrame||stopping||talkBusy);
+        buttonTalk.querySelector('svg').innerHTML=talkActive
+          ?'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/>'
+          :'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/>';
+        buttonSound.disabled=Boolean(talkActive||talkBusy||soundBusy||!player||!firstFrame||stopping);
+      };
+      const settleTalkStart = result => {
+        if(!talkStartResolver)return false;
+        clearTimeout(talkStartTimeout);talkStartTimeout=null;
+        const resolve=talkStartResolver;talkStartResolver=null;resolve(result||{code:-1,msg:'未收到对讲启动结果'});
+        return true;
+      };
+      const restoreTalkPlaybackSound = async (instance, desiredSound, reason) => {
+        if(!instance||instance!==player||stopping)return false;
+        try{
+          const method=desiredSound?instance.openSound:instance.closeSound;
+          if(typeof method!=='function')throw new Error(desiredSound?'openSound unavailable':'closeSound unavailable');
+          await Promise.resolve(method.call(instance));
+          if(instance!==player||stopping)return false;
+          soundOn=Boolean(desiredSound);updateSoundUI();
+          setNativeVideoMuted(!soundOn,`talk-${reason}-restore`);
+          return true;
+        }catch(err){
+          if(instance===player&&!stopping){
+            soundOn=false;updateSoundUI();setNativeVideoMuted(true,`talk-${reason}-restore-failed`);
+          }
+          return false;
+        }
+      };
+      const resetTalkStateForTeardown = instance => {
+        micGate?.setTalkIntent?.(false,'player-teardown');
+        const hadTalk=Boolean(talkActive||talkBusy||talkStartInvoked);
+        talkAttemptGeneration++;
+        settleTalkStart({code:-1,msg:'播放器正在停止'});
+        clearTimeout(talkStartTimeout);talkStartTimeout=null;
+        if(instance&&talkStartInvoked&&typeof instance.stopTalk==='function'){
+          try{instance.stopTalk();}
+          catch(err){}
+        }
+        talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;
+        updateTalkUI();
+      };
+      const QUALITY_LABELS={'0':'流畅','1':'标清','2':'高清','3':'超清','4':'极清','5':'3K','6':'4K','auto':'自动'};
+      const QUALITY_NAME_LABELS={VIDEO_LEVEL_FLUENT:'流畅',VIDEO_LEVEL_STANDARD:'标清',
+        VIDEO_LEVEL_HEIGH:'高清',VIDEO_LEVEL_SUPER:'超清',VIDEO_LEVEL_EXTREME:'极清',
+        VIDEO_LEVEL_3K:'3K',VIDEO_LEVEL_4k:'4K',VIDEO_LEVEL_AUTO:'自动'};
+      const qualityLabel = option => {
+        const level=String(option?.level??option?.videoLevel??option?.value??'');
+        const rawName=String(option?.name??option?.label??'').trim();
+        return QUALITY_LABELS[level]||QUALITY_NAME_LABELS[rawName]||rawName||`清晰度 ${level}`;
+      };
+      const extractQualityLevel = value => {
+        const raw=value&&typeof value==='object'?(value.level??value.videoLevel??value.value):value;
+        return raw===undefined||raw===null?null:String(raw);
+      };
+      const updateQualityButton = () => {
+        const confirmed=qualityCurrentConfirmed&&qualityCurrentLevel!==null;
+        const current=qualityOptions.find(item=>item.level===String(qualityCurrentLevel));
+        const label=confirmed?(current?.label||QUALITY_LABELS[String(qualityCurrentLevel)]||'清晰度'):'清晰度';
+        buttonQuality.textContent=label;
+        buttonQuality.title=confirmed
+          ?`当前选择档位：${label}；实际输出分辨率以设备码流为准；点击切换`
+          :'设备当前清晰度尚未确认；点击查看支持档位';
+        buttonQuality.setAttribute('aria-label',confirmed
+          ?`当前选择档位${label}，点击切换`
+          :'当前清晰度尚未确认，点击选择清晰度');
+        if(!qualityMenu.hidden)renderQualityMenu();
+      };
+      const setQualityCurrent = (value,source='sdk',confirmed=true) => {
+        const raw=extractQualityLevel(value);
+        if(raw===null)return;
+        qualityCurrentLevel=raw;
+        qualityCurrentConfirmed=Boolean(confirmed);
+        if(qualityCurrentConfirmed)qualityPendingVerification=false;
+        updateQualityButton();
+      };
+      const cancelQualityVerification = () => {
+        qualityVerificationGeneration++;
+        clearTimeout(qualityInitialSyncTimer);qualityInitialSyncTimer=null;
+      };
+      const waitQualityMs = ms => new Promise(resolve=>setTimeout(resolve,ms));
+      const scheduleInitialQualitySync = (reason='first-frame') => {
+        clearTimeout(qualityInitialSyncTimer);qualityInitialSyncTimer=null;
+        if(!player||stopping||qualityCurrentConfirmed||qualityPendingVerification)return;
+        const instance=player;
+        const generation=qualityVerificationGeneration;
+        qualityInitialSyncTimer=setTimeout(()=>{
+          qualityInitialSyncTimer=null;
+          void (async()=>{
+            if(instance!==player||stopping||generation!==qualityVerificationGeneration||qualityCurrentConfirmed||qualityPendingVerification)return;
+            let previous=null,stableCount=0,lastReadable=null,readableCount=0;
+            for(let sample=1;sample<=7;sample++){
+              if(instance!==player||stopping||generation!==qualityVerificationGeneration||qualityCurrentConfirmed||qualityPendingVerification)return;
+              let raw=null;
+              try{raw=extractQualityLevel(instance.getVideoLevel?.());}
+              catch(err){}
+              const streamStable=Boolean(qualityLatestStreamInfo&&qualityLatestStreamStableCount>=2);
+              if(raw!==null){
+                readableCount++;lastReadable=raw;
+                stableCount=raw===previous?stableCount+1:1;
+                previous=raw;
+                // The SDK getter is the authoritative selected tier. The currentVideoLevel
+                // This event can arrive before the stream settles.
+                if(stableCount>=2&&streamStable){
+                  setQualityCurrent(raw,'stable-getter-and-stream-info',true);
+                  return;
+                }
+              }
+              if(sample<7)await waitQualityMs(300);
+            }
+            if(instance!==player||stopping||generation!==qualityVerificationGeneration||qualityPendingVerification)return;
+            // Only use an SDK event as fallback when the getter is unavailable AND stream metadata
+            // is stable. Never allow a provisional startup event to override a readable getter.
+            if(readableCount===0&&qualityEventCandidate!==null&&qualityLatestStreamInfo&&qualityLatestStreamStableCount>=2){
+              setQualityCurrent(qualityEventCandidate,'sdk-event-fallback-with-stable-stream',true);
+              return;
+            }
+          })();
+        },900);
+      };
+      const verifyQualityAfterChange = async (instance,requestedLevel,label,verificationStartedAt) => {
+        cancelQualityVerification();
+        const generation=qualityVerificationGeneration;
+        qualityPendingVerification=true;
+        qualityCurrentConfirmed=false;
+        qualityCurrentLevel=null;
+        updateQualityButton();
+        let previous=null,stableCount=0,confirmed=false;
+        const passes=[{wait:300,name:'early'},{wait:500,name:'settle'},{wait:700,name:'final'},{wait:900,name:'late-final'}];
+        for(let index=0;index<passes.length;index++){
+          await waitQualityMs(passes[index].wait);
+          if(instance!==player||stopping||generation!==qualityVerificationGeneration)return;
+          let raw=null;
+          try{raw=extractQualityLevel(instance.getVideoLevel?.());}
+          catch(err){}
+          stableCount=raw!==null&&raw===previous?stableCount+1:(raw!==null?1:0);
+          previous=raw;
+          const streamStable=Boolean(qualityChangeLatestStreamInfo&&qualityChangeStreamStableCount>=2&&
+            qualityChangeResolvedAt>0&&qualityLatestStreamAt>=qualityChangeResolvedAt);
+          qualityRenderSnapshot(`quality-change-${passes[index].name}`);
+          if(stableCount>=2&&streamStable){
+            // Report the SDK's stable current tier only after fresh stream metadata confirms
+            // the new stream has settled. The requested label is never forced onto the button.
+            setQualityCurrent(raw,'stable-getter-and-post-change-stream-info',true);
+            confirmed=true;
+            if(raw!==String(requestedLevel)){
+              const actualLabel=qualityOptions.find(item=>item.level===String(raw))?.label||QUALITY_LABELS[String(raw)]||'清晰度';
+              showToast(`设备当前画质：${actualLabel}`);
+            }else{
+              showToast(`${label}已切换`);
+            }
+            forceQualityCanvasResync('quality-change-confirmed');
+            qualityRenderSnapshot('quality-change-confirmed');
+            hideQualitySwitchOverlay('confirmed');
+            return;
+          }
+        }
+        if(instance!==player||stopping||generation!==qualityVerificationGeneration)return;
+        if(!confirmed){
+          qualityPendingVerification=false;
+          qualityCurrentConfirmed=false;
+          qualityCurrentLevel=null;
+          updateQualityButton();
+          showToast('已请求切换，实际码流尚未确认');
+          // Keep the visual hint briefly beyond the verification loop so a slow
+          // stream switch does not expose an unexplained black frame; the 8s
+          // safety timer is the final bound if the SDK never confirms a stream.
+        }
+      };
+      const streamInfoPayload = info => info?.data??info;
+      const cancelQualityStreamResync = () => {
+        clearTimeout(qualityStreamResyncTimer);qualityStreamResyncTimer=null;
+        qualityStreamResyncGeneration++;
+      };
+      const applyQualityCanvasResync = (snapshot,reason) => {
+        if(!snapshot||!player||stopping)return false;
+        const engine=player?.jSPlugin?.player;
+        const playerWindow=engine?._playerWindow;
+        const canvas=primaryCanvas();
+        const before=canvas?{width:canvas.width,height:canvas.height,styleWidth:canvas.style.width,styleHeight:canvas.style.height}:null;
+        if(typeof playerWindow?.resize!=='function'){
+          return false;
+        }
+        try{
+          // EZUIKit 9.0.5 internally throttles videoInfo-driven canvas resize to 500ms.
+          // A stale videoInfo event can therefore run last after a new stream is already active.
+          // Reapply the most recent STREAM_INFO dimensions through the same SDK-owned window API.
+          playerWindow.resize(snapshot.width,snapshot.height);
+          const afterCanvas=primaryCanvas();
+          setTimeout(()=>{if(player&&!stopping)qualityRenderSnapshot(`canvas-stream-resync-${reason}`);},60);
+          return true;
+        }catch(err){
+          return false;
+        }
+      };
+      const forceQualityCanvasResync = reason => {
+        cancelQualityStreamResync();
+        if(qualityLatestStreamInfo&&qualityLatestStreamStableCount>=2)
+          return applyQualityCanvasResync(qualityLatestStreamInfo,reason);
+        return false;
+      };
+      const scheduleQualityCanvasResync = (snapshot,reason='stream-info') => {
+        if(!snapshot||!player||stopping)return;
+        clearTimeout(qualityStreamResyncTimer);
+        const generation=++qualityStreamResyncGeneration;
+        qualityStreamResyncTimer=setTimeout(()=>{
+          qualityStreamResyncTimer=null;
+          if(generation!==qualityStreamResyncGeneration||!player||stopping)return;
+          if(!qualityLatestStreamInfo||qualityLatestStreamInfo.at!==snapshot.at)return;
+          if(qualityLatestStreamStableCount<2){return;
+          }
+          applyQualityCanvasResync(qualityLatestStreamInfo,reason);
+        },800);
+      };
+      const observeQualityStreamInfo = (info,source='stream-info') => {
+        const data=streamInfoPayload(info)||{};
+        const width=Number(data.width),height=Number(data.height),at=Date.now();
+        if(!(width>=16&&height>=16)){return;
+        }
+        const key=`${Math.round(width)}x${Math.round(height)}`;
+        qualityLatestStreamStableCount=key===qualityLatestStreamKey?qualityLatestStreamStableCount+1:1;
+        qualityLatestStreamKey=key;
+        qualityLatestStreamAt=at;
+        qualityLatestStreamInfo={width:Math.round(width),height:Math.round(height),key,at,source,
+          frameRate:data.frameRate??null,videoFormatName:data.videoFormatName??null,
+          audioFormatName:data.audioFormatName??null,raw:data};
+        if(qualityPendingVerification&&qualityChangeResolvedAt>0&&at>=qualityChangeResolvedAt){
+          qualityChangeStreamStableCount=key===qualityChangeStreamKey?qualityChangeStreamStableCount+1:1;
+          qualityChangeStreamKey=key;
+          qualityChangeLatestStreamInfo=qualityLatestStreamInfo;
+        }
+        scheduleQualityCanvasResync(qualityLatestStreamInfo,source);
+        if(firstFrame&&!qualityCurrentConfirmed&&!qualityPendingVerification)
+          scheduleInitialQualitySync('stream-info-stable-candidate');
+      };
+      const renderQualityMenu = () => {
+        qualityMenuList.replaceChildren();
+        if(!qualityOptions.length){
+          const empty=document.createElement('div');empty.className='quality-empty';
+          empty.textContent=qualityListTimedOut?'设备暂未返回清晰度选项':'正在读取设备支持的清晰度…';
+          qualityMenuList.appendChild(empty);return;
+        }
+        for(const option of qualityOptions){
+          const button=document.createElement('button');button.type='button';
+          button.className='quality-option';button.textContent=option.label;
+          button.setAttribute('role','menuitemradio');
+          button.setAttribute('aria-checked',String(option.level===String(qualityCurrentLevel)));
+          button.disabled=qualityBusy;
+          button.addEventListener('click',()=>void selectQuality(option));
+          qualityMenuList.appendChild(button);
+        }
+      };
+      const setQualityOptions = (input,source='sdk') => {
+        const list=Array.isArray(input)?input:Array.isArray(input?.data)?input.data:[];
+        const seen=new Set();
+        qualityOptions=list.filter(item=>item&&typeof item==='object').map(item=>{
+          const rawLevel=item.level??item.videoLevel??item.value;
+          if(rawLevel===undefined||rawLevel===null)return null;
+          const level=String(rawLevel);
+          return {level,label:qualityLabel(item),raw:item};
+        }).filter(item=>{
+          if(!item||seen.has(item.level))return false;
+          seen.add(item.level);return true;
+        });
+        if(qualityOptions.length){clearTimeout(qualityListTimer);qualityListTimer=null;qualityListTimedOut=false;}
+        else if(source==='sdk-event'){clearTimeout(qualityListTimer);qualityListTimer=null;qualityListTimedOut=true;}
+        updateQualityButton();
+      };
+      const openQualityMenu = () => {
+        if(!firstFrame||!player||stopping){showToast('请先开始播放');return;}
+        showControls(true);clearTimeout(hideTimer);
+        qualityMenu.hidden=false;buttonQuality.setAttribute('aria-expanded','true');
+        qualityListTimedOut=false;renderQualityMenu();
+        if(!qualityOptions.length){
+          clearTimeout(qualityListTimer);
+          qualityListTimer=setTimeout(()=>{
+            qualityListTimer=null;
+            if(!qualityMenu.hidden&&!qualityOptions.length){qualityListTimedOut=true;renderQualityMenu();}
+          },3500);
+          if(typeof player.getVideoLevelList==='function'){
+            try{const list=player.getVideoLevelList();if(Array.isArray(list)&&list.length)setQualityOptions(list,'menu-refresh');}
+            catch(err){}
+          }
+        }
+      };
+      const closeQualityMenu = (reason='dismiss',schedule=true) => {
+        if(qualityMenu.hidden)return;
+        qualityMenu.hidden=true;buttonQuality.setAttribute('aria-expanded','false');
+        clearTimeout(qualityListTimer);qualityListTimer=null;
+        if(schedule)scheduleHide(3000);
+      };
+      const selectQuality = async option => {
+        if(!player||!firstFrame||stopping||qualityBusy)return;
+        // A selection dismisses the menu and every video control immediately.
+        // The right-side screenshot button shares controls-visible with the bottom bar.
+        hideControls();
+        if(document.activeElement?.closest?.('#quality-menu'))document.activeElement.blur();
+        if(option.level===String(qualityCurrentLevel)&&qualityCurrentConfirmed)return;
+        const currentPlayer=player;
+        if(typeof currentPlayer.changeVideoLevel!=='function'){showToast('当前 SDK 不支持清晰度切换');return;
+        }
+        cancelQualityVerification();
+        qualityBusy=true;qualityRequestedLevel=option.level;buttonQuality.disabled=true;
+        qualityCurrentConfirmed=false;qualityCurrentLevel=null;qualityPendingVerification=true;
+        qualityChangeStartedAt=Date.now();qualityChangeResolvedAt=0;
+        qualityChangeStreamKey=null;qualityChangeStreamStableCount=0;qualityChangeLatestStreamInfo=null;
+        qualityEventCandidate=null;qualityEventCandidateAt=0;
+        updateQualityButton();renderQualityMenu();
+        showQualitySwitchOverlay(option.label);
+        const requestStartedAt=qualityChangeStartedAt;
+        try{
+          const requestLevel=option.level==='auto'?'auto':option.raw;
+          const result=await Promise.resolve(currentPlayer.changeVideoLevel(requestLevel));
+          if(currentPlayer!==player||stopping)return;
+          if(result==null||(typeof result.code==='number'&&result.code<0))
+            throw new Error(result?.msg||'SDK rejected quality change');
+          qualityChangeResolvedAt=Date.now();
+          qualityChangeStreamKey=null;qualityChangeStreamStableCount=0;qualityChangeLatestStreamInfo=null;
+          let sdkCurrent=null;try{sdkCurrent=extractQualityLevel(currentPlayer.getVideoLevel?.());}catch(_){}
+          qualityRenderSnapshot('quality-change-resolved');
+          showToast(`正在确认${option.label}画质`);
+          void verifyQualityAfterChange(currentPlayer,option.level,option.label,requestStartedAt);
+        }catch(err){
+          if(currentPlayer===player&&!stopping){
+            qualityPendingVerification=false;
+            qualityCurrentLevel=null;qualityCurrentConfirmed=false;
+            updateQualityButton();
+            hideQualitySwitchOverlay('change-error');
+            showToast(`切换${option.label}失败`);
+          }
+        }finally{
+          if(currentPlayer===player&&!stopping){qualityBusy=false;qualityRequestedLevel=null;buttonQuality.disabled=false;renderQualityMenu();}
+        }
+      };
+      const bindQualityEvents = (instance,SDK) => {
+        const events=SDK?.EVENTS||{};
+        if(typeof instance?.on==='function'){
+          if(events.streamInfoCB)instance.on(events.streamInfoCB,info=>{
+            const data=streamInfoPayload(info);
+            observeQualityStreamInfo(data,'stream-info');
+            qualityRenderSnapshot('stream-info');
+          });
+          if(events.videoInfo)instance.on(events.videoInfo,info=>{
+            const data=streamInfoPayload(info);
+            const width=Number(data?.width),height=Number(data?.height);
+            if(width>=16&&height>=16){qualityLatestVideoInfo={width:Math.round(width),height:Math.round(height),at:Date.now(),raw:data};qualityLatestVideoInfoAt=qualityLatestVideoInfo.at;}
+            qualityRenderSnapshot('video-info');
+          });
+          if(events.setVideoLevelList)instance.on(events.setVideoLevelList,list=>setQualityOptions(list,'sdk-event'));
+          if(events.currentVideoLevel)instance.on(events.currentVideoLevel,(info,level)=>{
+            const current=level??info?.level??info?.data??info;
+            const raw=extractQualityLevel(current);
+            if(raw!==null){qualityEventCandidate=raw;qualityEventCandidateAt=Date.now();}
+            if(!qualityBusy&&!qualityPendingVerification&&qualityCurrentConfirmed&&
+              qualityLatestStreamInfo&&qualityLatestStreamStableCount>=2){
+              // Read the getter rather than trusting an event payload which may be provisional.
+              let getter=null;try{getter=extractQualityLevel(instance.getVideoLevel?.());}catch(_){}
+              if(getter!==null&&getter===raw)setQualityCurrent(getter,'sdk-event-and-getter',true);
+              else {}
+            }else if(firstFrame&&!qualityBusy&&!qualityPendingVerification&&!qualityCurrentConfirmed){
+              scheduleInitialQualitySync('current-level-event');
+            }
+          });
+          if(events.changeVideoLevel)instance.on(events.changeVideoLevel,result=>{
+          });
+        }
+        try{
+          const list=instance?.getVideoLevelList?.();
+          if(Array.isArray(list)&&list.length)setQualityOptions(list,'sync-getter');
+          else {}
+        }catch(err){}
+        try{
+          const current=instance?.getVideoLevel?.();
+        }catch(err){}
+      };
+      buttonQuality.addEventListener('click',()=>{
+        if(!qualityMenu.hidden)closeQualityMenu('button-toggle');
+        else openQualityMenu();
+      });
+      document.addEventListener('pointerdown',event=>{
+        if(!qualityMenu.hidden&&!qualityMenu.contains(event.target)&&!buttonQuality.contains(event.target))
+          closeQualityMenu('outside-pointer');
+      },{capture:true,passive:true});
+      document.addEventListener('keydown',event=>{
+        if(event.key==='Escape'&&!qualityMenu.hidden)closeQualityMenu('escape');
+      });
+      const bindTalkEvents = (instance, SDK) => {
+        if(typeof instance?.on!=='function'){return;
+        }
+        const events=SDK?.EVENTS||{};
+        const startEvent=events.startTalk||'startTalk';
+        instance.on(startEvent,result=>{
+          const payload={code:result?.code??null,msg:result?.msg?String(result.msg).slice(0,160):null,
+            eventType:result?.eventType||null,active:talkActive,busy:talkBusy,stopping:talkStopping};
+          if(instance!==player||stopping||talkStopping)return;
+          if(talkStartResolver){settleTalkStart(result);return;}
+          if(Number(result?.code)!==0&&(talkActive||talkBusy))
+            void failTalkFromSdk(instance,result?.msg||'对讲启动失败',result);
+        });
+        const stopEvent=events.stopTalk||'stopTalk';
+        instance.on(stopEvent,result=>{
+        });
+        const messageEvent=events.message||'message';
+        instance.on(messageEvent,(message,type)=>{
+          if(type!=='talkError'&&type!=='TALK_ERROR')return;
+          if(instance===player&&!stopping&&!talkStopping&&(talkActive||talkBusy))
+            void failTalkFromSdk(instance,message||'对讲启动失败',{messageType:type});
+        });
+        if(events.talkError)instance.on(events.talkError,result=>{
+          if(instance===player&&!stopping&&!talkStopping&&(talkActive||talkBusy))
+            void failTalkFromSdk(instance,result?.msg||'对讲失败',result);
+        });
+      };
+      const failTalkFromSdk = async (instance, message, detail={}) => {
+        if(instance!==player||stopping||talkStopping)return;
+        micGate?.setTalkIntent?.(false,'sdk-talk-failure');
+        const generation=++talkAttemptGeneration;
+        const wasActive=talkActive,wasBusy=talkBusy,shouldStop=talkStartInvoked;
+        const restoreSound=talkPreviousSoundOn;
+        talkBusy=true;talkActive=false;talkStopping=true;updateTalkUI();
+        settleTalkStart({code:-1,msg:message||'对讲失败',detail});
+        if(shouldStop&&typeof instance.stopTalk==='function'){
+          try{instance.stopTalk();}catch(err){}
+        }
+        talkStartInvoked=false;
+        await restoreTalkPlaybackSound(instance,restoreSound,'failure');
+        if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+        talkActive=false;talkBusy=false;talkStopping=false;talkPreviousSoundOn=false;updateTalkUI();
+        showToast(String(message||'对讲失败').slice(0,70));
+      };
+      const startTalkByUser = async () => {
+        if(!talkSupported||!player||!firstFrame||stopping||talkBusy||talkActive)return;
+        micGate?.setTalkIntent?.(true,'explicit-talk-button-click');
+        const instance=player,generation=++talkAttemptGeneration;
+        talkBusy=true;talkStopping=false;talkActive=false;talkStartInvoked=false;
+        talkPreviousSoundOn=soundOn;updateTalkUI();
+        try{
+          if(typeof instance.getMicrophonePermission!=='function'||typeof instance.getMicrophonesList!=='function'||typeof instance.startTalk!=='function'||typeof instance.stopTalk!=='function')
+            throw Object.assign(new Error('当前 EZUIKit 实例缺少对讲接口'),{userMessage:'当前 SDK 不支持完整对讲功能'});
+          const permission=await Promise.resolve(instance.getMicrophonePermission());
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          if(Number(permission?.code)!==0)
+            throw Object.assign(new Error(permission?.msg||'麦克风权限未授权'),{userMessage:'麦克风权限未授权，请允许访问麦克风',talkCode:permission?.code});
+          const microphones=await Promise.resolve(instance.getMicrophonesList());
+          const list=Array.isArray(microphones?.res)?microphones.res:[];
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          if(Number(microphones?.code)!==0)
+            throw Object.assign(new Error(microphones?.msg||'读取麦克风列表失败'),{userMessage:'无法读取麦克风设备列表',talkCode:microphones?.code});
+          if(!list.some(device=>device?.kind==='audioinput'))
+            throw Object.assign(new Error('未检测到 audioinput 设备'),{userMessage:'未检测到可用麦克风'});
+          if(talkPreviousSoundOn){
+            if(typeof instance.closeSound!=='function')throw Object.assign(new Error('closeSound unavailable'),{userMessage:'无法关闭播放声音，请先手动静音后重试'});
+            await Promise.resolve(instance.closeSound());
+            if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+            soundOn=false;updateSoundUI();setNativeVideoMuted(true,'talk-start-mute-playback');
+          }
+          const result=await new Promise(resolve=>{
+            talkStartResolver=resolve;
+            talkStartTimeout=setTimeout(()=>settleTalkStart({code:-1,msg:'等待 SDK 对讲启动结果超时',timeout:true}),12000);
+            talkStartInvoked=true;
+            try{instance.startTalk();}
+            catch(err){settleTalkStart({code:-1,msg:err?.message||'startTalk 调用失败'});}
+          });
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          if(Number(result?.code)!==0)
+            throw Object.assign(new Error(result?.msg||'对讲启动失败'),{userMessage:result?.timeout?'对讲启动超时，请检查网络与设备权限':(result?.msg||'对讲启动失败'),talkCode:result?.code});
+          talkActive=true;talkBusy=false;talkStopping=false;updateTalkUI();
+          showToast('对讲已启动');
+        }catch(err){
+          micGate?.setTalkIntent?.(false,'talk-start-failed');
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          clearTimeout(talkStartTimeout);talkStartTimeout=null;talkStartResolver=null;
+          if(talkStartInvoked&&typeof instance.stopTalk==='function'){
+            try{instance.stopTalk();}catch(stopErr){}
+          }
+          talkStartInvoked=false;talkActive=false;talkBusy=true;talkStopping=true;updateTalkUI();
+          await restoreTalkPlaybackSound(instance,talkPreviousSoundOn,'start-error');
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          talkActive=false;talkBusy=false;talkStopping=false;talkPreviousSoundOn=false;updateTalkUI();
+          showToast(String(err?.userMessage||err?.message||'对讲启动失败').slice(0,90));
+        }
+      };
+      const stopTalkByUser = async (reason='user') => {
+        if(!player||stopping||talkBusy||!talkActive)return;
+        const instance=player,generation=++talkAttemptGeneration,restoreSound=talkPreviousSoundOn;
+        talkBusy=true;talkStopping=true;updateTalkUI();
+        try{
+          if(typeof instance.stopTalk!=='function')throw new Error('stopTalk unavailable');
+          instance.stopTalk();micGate?.setTalkIntent?.(false,'talk-stopped');talkStartInvoked=false;talkActive=false;
+          await restoreTalkPlaybackSound(instance,restoreSound,'stop');
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          talkPreviousSoundOn=false;talkActive=false;talkBusy=false;talkStopping=false;updateTalkUI();
+          showToast('对讲已结束');
+        }catch(err){
+          micGate?.setTalkIntent?.(false,'talk-stop-failed');
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;updateTalkUI();
+          showToast('结束对讲失败，请重试');
+        }
+      };
+      const stopTalkForPiP = () => {
+        if(!talkActive||!player||talkBusy||stopping)return;
+        const instance=player,generation=++talkAttemptGeneration,restoreSound=talkPreviousSoundOn;
+        talkBusy=true;talkStopping=true;updateTalkUI();
+        try{if(typeof instance.stopTalk==='function')instance.stopTalk();}
+        catch(err){}
+        micGate?.setTalkIntent?.(false,'talk-stopped-for-pip');
+        talkActive=false;talkStartInvoked=false;
+        void restoreTalkPlaybackSound(instance,restoreSound,'pip').finally(()=>{
+          if(instance!==player||stopping||generation!==talkAttemptGeneration)return;
+          talkPreviousSoundOn=false;talkBusy=false;talkStopping=false;updateTalkUI();
+        });
+      };
+      const applyInitialSdkSoundState = async reason => {
+        const currentPlayer=player;
+        if(!currentPlayer||stopping||initialSoundSyncBusy)return false;
+        initialSoundSyncBusy=true;
+        const desiredSound=!initialMuted;
+        try{
+          const method=desiredSound?currentPlayer.openSound:currentPlayer.closeSound;
+          if(typeof method!=='function')throw new Error(desiredSound?'openSound unavailable':'closeSound unavailable');
+          await Promise.resolve(method.call(currentPlayer));
+          if(currentPlayer!==player||stopping)return false;
+          soundOn=desiredSound;
+          updateSoundUI();
+          setNativeVideoMuted(!soundOn,'initial-sdk-sound-state');
+          return true;
+        }catch(err){
+          // If the configured default is muted, make one explicit close attempt
+          // even if the first SDK call rejected; do not falsely mark sound enabled.
+          if(initialMuted&&currentPlayer===player&&!stopping){
+            try{
+              if(typeof currentPlayer.closeSound==='function')await Promise.resolve(currentPlayer.closeSound());
+              if(currentPlayer===player&&!stopping){soundOn=false;updateSoundUI();
+                setNativeVideoMuted(true,'initial-sdk-mute-retry');return true;}
+            }catch(retryErr){}
+          }
+          return false;
+        }finally{initialSoundSyncBusy=false;}
+      };
+      const resumeNativeControlAudioContext = reason => {
+        const context=pipSilentAudioContext;
+        if(!context||context.state!=='suspended')return;
+        try{
+          Promise.resolve(context.resume()).then(()=>{}).catch(err=>{});
+        }catch(err){}
+      };
+      const nativeMediaPresentationActive = () => Boolean(
+        fullscreenMode==='video' || pipVideo.webkitPresentationMode==='picture-in-picture' ||
+        document.pictureInPictureElement===pipVideo || pipActive);
+      const setNativeVideoMuted = (muted,reason) => {
+        const value=Boolean(muted);
+        if(Boolean(pipVideo.muted)===value)return;
+        nativeMuteExpected={muted:value,at:performance.now(),reason};
+        pipVideo.muted=value;
+      };
+      const syncSdkSoundFromNativeMute = async (muted,via='native-volumechange') => {
+        if(!nativeMediaPresentationActive()){return;
+        }
+        if(!player||!firstFrame||stopping){return;
+        }
+        const desiredSound=!Boolean(muted)&&Number(pipVideo.volume)>0;
+        if(desiredSound===soundOn){return;
+        }
+        if(nativeSoundSyncBusy||soundBusy){
+          setTimeout(()=>{if(nativeMediaPresentationActive())void syncSdkSoundFromNativeMute(pipVideo.muted,via+'-retry');},100);
+          return;
+        }
+        nativeSoundSyncBusy=true;
+        const currentPlayer=player;
+        try{
+          await Promise.resolve(desiredSound?currentPlayer.openSound():currentPlayer.closeSound());
+          if(currentPlayer!==player||stopping)return;
+          soundOn=desiredSound;
+          updateSoundUI();
+        }catch(err){
+          setNativeVideoMuted(!soundOn,'sdk-sound-sync-error');
+          showToast('系统音量操作失败');
+        }finally{nativeSoundSyncBusy=false;}
+      };
+      const releaseSilentAudioSource = reason => {
+        const track=pipSilentAudioTrack;
+        const oscillator=pipSilentAudioOscillator;
+        const context=pipSilentAudioContext;
+        pipSilentAudioTrack=null;pipSilentAudioOscillator=null;pipSilentAudioGain=null;pipSilentAudioContext=null;
+        try{track?.stop();}catch(_){}
+        try{oscillator?.stop();}catch(_){}
+        if(context&&context.state!=='closed')try{Promise.resolve(context.close()).catch(()=>{});}catch(_){}
+        if(track||context){}
+      };
+      const ensureNativeControlAudioTrack = stream => {
+        // WebKit native PiP/fullscreen controls also need a media audio track on macOS Safari.
+        if((!isIOSDevice&&!isWebKit)||!stream)return false;
+        if(pipSilentAudioTrack?.readyState==='live'){
+          if(!stream.getAudioTracks().some(track=>track.id===pipSilentAudioTrack.id))stream.addTrack(pipSilentAudioTrack);
+          return true;
+        }
+        const AudioContextCtor=window.AudioContext||window.webkitAudioContext;
+        if(!AudioContextCtor||typeof stream.addTrack!=='function'){
+          return false;
+        }
+        try{
+          const context=new AudioContextCtor();
+          const oscillator=context.createOscillator();
+          const gain=context.createGain();
+          const destination=context.createMediaStreamDestination();
+          gain.gain.value=0;
+          oscillator.connect(gain);gain.connect(destination);oscillator.start();
+          const track=destination.stream.getAudioTracks()[0];
+          if(!track){try{oscillator.stop();}catch(_){};try{context.close();}catch(_){};return false;}
+          pipSilentAudioContext=context;pipSilentAudioOscillator=oscillator;
+          pipSilentAudioGain=gain;pipSilentAudioTrack=track;
+          stream.addTrack(track);
+          // Resuming is best-effort; the track is silent and never carries camera audio.
+          try{Promise.resolve(context.resume()).then(()=>{}).catch(err=>{});}catch(err){}
+          return true;
+        }catch(err){return false;
+        }
+      };
+      // Fullscreen is requested synchronously from the button click inside the
+      // same-origin iframe. Unlike postMessage, this keeps the user gesture.
+      // In fullscreen, the actual iframe (not a CSS-only overlay) occupies the
+      // screen so the player can continue using the existing video session.
+      const updateFullscreenUI = active => {
+        fullscreenActive = Boolean(active);
+        if(!fullscreenActive)lastNativeResize=null;
+        if(fullscreenActive)clearTimeout(fullscreenFeedbackTimer);
+        document.body.classList.toggle('fullscreen-active',fullscreenActive);
+        // Parent-level copy button is inaccessible while the iframe is in
+        // the top layer, so expose the iframe's own copy button only then.
+        buttonFull.setAttribute('aria-label',fullscreenActive?'退出全屏':'全屏');
+        buttonFull.title=fullscreenActive?'退出全屏':'全屏';
+        buttonFull.setAttribute('aria-pressed',String(fullscreenActive));
+        buttonFull.querySelector('svg').innerHTML=fullscreenActive?
+          '<path d="M8 3v5H3"/><path d="M16 3v5h5"/><path d="M21 16h-5v5"/><path d="M3 16h5v5"/>':
+          '<path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/>';
+        updateFullscreenStage('ui-change');
+      };
+      // Keep the displayed viewport at CSS size while the SDK renders up to 2x
+      // pixels. Cap backing dimensions to avoid unbounded memory/CPU use in fullscreen.
+      const renderScaleFor = (width,height) => {
+        const dpr=Math.max(1,Number(window.devicePixelRatio)||1);
+        const w=Math.max(1,Number(width)||1),h=Math.max(1,Number(height)||1);
+        return Math.max(.5,Math.min(dpr,2,2560/w,1440/h));
+      };
+      const configureRendererSize = (width,height) => {
+        const scale=renderScaleFor(width,height);
+        const renderWidth=Math.max(1,Math.round(width*scale));
+        const renderHeight=Math.max(1,Math.round(height*scale));
+        activeRenderScale=scale;
+        renderer.style.setProperty('--luxe-render-inverse',String(1/scale));
+        renderer.style.width=`${renderWidth}px`;
+        renderer.style.height=`${renderHeight}px`;
+        return {scale,width:renderWidth,height:renderHeight};
+      };
+      const resizePlayerToViewport = (instance,width,height,reason) => {
+        const render=configureRendererSize(width,height);
+        return Promise.resolve(instance.resize(render.width,render.height));
+      };
+      const qualityRenderSnapshot = reason => {
+        const canvas=primaryCanvas();
+        let computed=null;
+        try{if(canvas){const cs=getComputedStyle(canvas);computed={width:cs.width,height:cs.height};}}catch(_){}
+        let sdkCurrent=null;
+        try{sdkCurrent=player?.getVideoLevel?.()??null;}catch(_){}
+      };
+      const schedulePlayerResize = () => {
+        clearTimeout(resizeTimer);
+        if(fullscreenMode==='video'&&fullscreenActive)return; // iOS AVKit owns its native video presentation.
+        if(embeddedRestoring&&!fullscreenActive)return; // Exit recovery owns SDK resizing.
+        resizeTimer=setTimeout(()=>{
+          if(!player||stopping||typeof player.resize!=='function')return;
+          if(embeddedRestoring&&!fullscreenActive)return;
+          const width=Math.round(vid.clientWidth),height=Math.round(vid.clientHeight);
+          if(width<50||height<50)return;
+          if(fullscreenActive && fullscreenMode==='native' && lastNativeResize &&
+            lastNativeResize.player===player && lastNativeResize.width===width &&
+            lastNativeResize.height===height){return;}
+          if(fullscreenActive && fullscreenMode==='native')
+            lastNativeResize={player,width,height};
+          if(fullscreenActive){}
+          try{resizePlayerToViewport(player,width,height,'resize').then(()=>{
+            if(fullscreenActive){}
+            if(fullscreenActive&&fullscreenMode==='native'&&entryBridgeActive)
+              checkEntryTransitionBridge('sdk-resize-resolved',width,height);
+            if(canvasFitOverride&&!fullscreenActive)applyCanvasFitOverride(width,height);
+          }).catch(err=>{});}
+          catch(err){}
+        },90);
+      };
+      const rectData = node => {
+        if(!node?.getBoundingClientRect)return null;
+        const rect=node.getBoundingClientRect();
+        return {width:Math.round(rect.width),height:Math.round(rect.height),
+          left:Math.round(rect.left),top:Math.round(rect.top)};
+      };
+      const fullscreenGeometry = () => {
+        // Keep the renderer dimensions aligned with the active viewport.
+        const media=Array.from(vid.querySelectorAll('canvas,video'))
+          .filter(node=>node!==pipVideo)
+          .slice(0,8).map(node=>({tag:node.tagName,
+            intrinsicWidth:node.videoWidth||node.width||null,
+            intrinsicHeight:node.videoHeight||node.height||null,
+            rect:rectData(node)}));
+        return {innerWindow:{width:innerWidth,height:innerHeight},
+          hostWindow:hostDocument?.defaultView?
+            {width:hostDocument.defaultView.innerWidth,height:hostDocument.defaultView.innerHeight}:null,
+          screen:{width:window.screen?.width||null,height:window.screen?.height||null},
+          root:rectData(document.documentElement),body:rectData(document.body),
+          stage:rectData(vid),media};
+      };
+      const cancelEmbeddedRecovery = () => {
+        for(const timer of embeddedRestoreTimers)clearTimeout(timer);
+        embeddedRestoreTimers=[];
+        embeddedRestoring=false;
+        embeddedRestoreVersion++;
+      };
+      const clearCanvasFitOverride = () => {
+        if(!canvasFitOverride)return;
+        const {canvas,styles}=canvasFitOverride;
+        for(const [name,value,priority] of styles){
+          if(value)canvas.style.setProperty(name,value,priority);
+          else canvas.style.removeProperty(name);
+        }
+        canvasFitOverride=null;
+      };
+      const applyCanvasFitOverride = (width,height) => {
+        if(!canvasFitOverride)return;
+        canvasFitOverride.canvas.style.setProperty('width',`${width}px`,'important');
+        canvasFitOverride.canvas.style.setProperty('height',`${height}px`,'important');
+      };
+      const embeddedDimensions = () => {
+        const frame=rectData(ownFrame),stage=rectData(vid);
+        const baseline=embeddedSizeBeforeFullscreen;
+        const plausible=value=>value&&value.width>=50&&value.height>=50&&
+          (!baseline||(value.width<=baseline.width*1.8&&value.height<=baseline.height*1.8));
+        // The parent's iframe dimensions are authoritative on return from fullscreen.
+        // During Safari's exit transition the inner viewport can still be fullscreen-sized.
+        const chosen=plausible(frame)?frame:plausible(stage)?stage:
+          baseline||frame||stage||{width:0,height:0};
+        return {width:Math.round(chosen.width),height:Math.round(chosen.height),
+          frame,stage,baseline};
+      };
+      const primaryCanvas = () => Array.from(vid.querySelectorAll('canvas'))
+        .sort((a,b)=>(b.width||0)*(b.height||0)-(a.width||0)*(a.height||0))[0]||null;
+      // On desktop, capture the visible card frame *before* requesting native
+      // fullscreen. The browser enlarges this image with the iframe while the
+      // already-connected EZUIKit canvas catches up (~90-110ms on test Macs).
+      // Exit uses a distinct, previously validated bridge lifecycle below.
+      const clearEntryTransitionBridge = reason => {
+        clearTimeout(entryBridgeFallbackTimer);
+        clearTimeout(entryBridgeReleaseTimer);
+        clearTimeout(entryBridgeCheckTimer);
+        entryBridgeFallbackTimer=null;
+        entryBridgeReleaseTimer=null;
+        entryBridgeCheckTimer=null;
+        if(!entryBridgeActive)return;
+        entryBridgeActive=false;
+        entryBridgeReleasing=false;
+        entryBridgeBaseline=null;
+        bridgeCanvas.style.transition='none';
+        bridgeCanvas.hidden=true;
+        bridgeCanvas.style.opacity='1';
+      };
+      const finishEntryTransitionBridge = reason => {
+        if(!entryBridgeActive||entryBridgeReleasing)return;
+        entryBridgeReleasing=true;
+        clearTimeout(entryBridgeCheckTimer);
+        entryBridgeCheckTimer=null;
+        clearTimeout(entryBridgeFallbackTimer);
+        entryBridgeFallbackTimer=null;
+        bridgeCanvas.style.transition='opacity .12s ease-out';
+        bridgeCanvas.style.opacity='0';
+        entryBridgeReleaseTimer=setTimeout(()=>clearEntryTransitionBridge('fade-complete'),165);
+      };
+      const checkEntryTransitionBridge = (reason,width,height) => {
+        if(!entryBridgeActive||entryBridgeReleasing)return;
+        if(!fullscreenActive||fullscreenMode!=='native'||!hasNativeFullscreen())return;
+        // Await two painted frames after the SDK's resolved resize, to avoid
+        // unveiling the initial card-sized or incompletely laid out canvas.
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{
+          if(!entryBridgeActive||entryBridgeReleasing||!fullscreenActive||
+            fullscreenMode!=='native'||!hasNativeFullscreen())return;
+          const stage=rectData(vid),canvas=rectData(primaryCanvas());
+          const baseline=entryBridgeBaseline;
+          const enlarged=Boolean(stage&&baseline&&(
+            stage.width>baseline.width*1.10||stage.height>baseline.height*1.10));
+          const ready=Boolean(stage&&canvas&&enlarged&&
+            Math.abs(stage.width-width)<=3&&Math.abs(stage.height-height)<=3&&
+            canvas.width<=width+4&&canvas.height<=height+4&&
+            canvas.width>=width*.88&&canvas.height>=height*.88);
+          if(ready){finishEntryTransitionBridge(reason);return;}
+          // Keep showing the cached frame until EZUIKit and the fullscreen
+          // container match. The bounded timeout always releases the overlay.
+          clearTimeout(entryBridgeCheckTimer);
+          entryBridgeCheckTimer=setTimeout(()=>{
+            if(!entryBridgeActive||entryBridgeReleasing)return;
+            const {width:w,height:h}={width:Math.round(vid.clientWidth),
+              height:Math.round(vid.clientHeight)};
+            if(w>=50&&h>=50)checkEntryTransitionBridge('layout-settled',w,h);
+          },60);
+        }));
+      };
+      const startEntryTransitionBridge = () => {
+        if(isIOSDevice||transitionBridgeActive||entryBridgeActive)return false;
+        const source=primaryCanvas();
+        if(!source||!source.width||!source.height)return false;
+        try{
+          bridgeCanvas.width=Math.max(2,source.width);
+          bridgeCanvas.height=Math.max(2,source.height);
+          const context=bridgeCanvas.getContext('2d',{alpha:false});
+          if(!context)return false;
+          context.drawImage(source,0,0,bridgeCanvas.width,bridgeCanvas.height);
+          bridgeCanvas.style.transition='none';
+          bridgeCanvas.style.opacity='1';
+          bridgeCanvas.hidden=false;
+          entryBridgeBaseline=rectData(vid);
+          entryBridgeActive=true;
+          // Browser fullscreen can be rejected or fail to deliver change events;
+          // never leave a stuck still image over a live stream.
+          entryBridgeFallbackTimer=setTimeout(()=>{
+            if(!entryBridgeActive||entryBridgeReleasing)return;
+            finishEntryTransitionBridge('timeout');
+          },1400);
+          return true;
+        }catch(err){
+          bridgeCanvas.hidden=true;
+          return false;
+        }
+      };
+      const clearHostTransitionBridge = reason => {
+        clearTimeout(transitionBridgeTimer);
+        transitionBridgeTimer=null;
+        if(!transitionBridgeActive)return;
+        transitionBridgeActive=false;
+        bridgeCanvas.style.transition='none';
+        bridgeCanvas.hidden=true;
+        bridgeCanvas.style.opacity='1';
+      };
+      const startHostTransitionBridge = reason => {
+        // Desktop Chrome AND macOS Safari only. The native iOS AVKit video
+        // presentation remains entirely outside this bridge/recovery path.
+        if(isIOSDevice || transitionBridgeActive || fullscreenMode!=='native')return false;
+        const source=primaryCanvas();
+        if(!source||!source.width||!source.height)return false;
+        try{
+          bridgeCanvas.width=Math.max(2,source.width);
+          bridgeCanvas.height=Math.max(2,source.height);
+          const context=bridgeCanvas.getContext('2d',{alpha:false});
+          if(!context)return false;
+          context.drawImage(source,0,0,bridgeCanvas.width,bridgeCanvas.height);
+          bridgeCanvas.style.transition='none';
+          bridgeCanvas.style.opacity='1';
+          bridgeCanvas.hidden=false;
+          transitionBridgeActive=true;
+          return true;
+        }catch(err){
+          bridgeCanvas.hidden=true;
+          return false;
+        }
+      };
+      const completeHostTransitionBridge = (reason,width,height) => {
+        if(!transitionBridgeActive)return;
+        const canvas=primaryCanvas(),stage=rectData(vid),media=rectData(canvas);
+        const ready=Boolean(stage&&media&&
+          Math.abs(stage.width-width)<=3&&Math.abs(stage.height-height)<=3&&
+          media.width<=width+3&&media.height<=height+3&&
+          media.width>=width*.88&&media.height>=height*.88);
+        if(!ready)return;
+        clearTimeout(transitionBridgeTimer);
+        bridgeCanvas.style.transition='opacity .10s ease-out';
+        bridgeCanvas.style.opacity='0';
+        transitionBridgeTimer=setTimeout(()=>clearHostTransitionBridge('restored'),130);
+      };
+      const ensureEmbeddedCanvasFit = (width,height) => {
+        const canvas=primaryCanvas(),rect=rectData(canvas);
+        if(!canvas||!rect)return;
+        if(rect.width<=width*1.12&&rect.height<=height*1.12)return;
+        if(!canvasFitOverride||canvasFitOverride.canvas!==canvas){
+          clearCanvasFitOverride();
+          canvasFitOverride={canvas,styles:['width','height'].map(name=>[
+            name,canvas.style.getPropertyValue(name),canvas.style.getPropertyPriority(name)])};
+        }
+        applyCanvasFitOverride(width,height);
+      };
+      const scheduleEmbeddedRecovery = () => {
+        cancelEmbeddedRecovery();
+        clearTimeout(resizeTimer);
+        // Fullscreen CSS is already removed by updateFullscreenStage; keep SDK live.
+        embeddedRestoring=true;
+        const version=embeddedRestoreVersion;
+        const desktopBridge=transitionBridgeActive;
+        const passes=desktopBridge?[0,95,210,430,800]:[80,260,620,1060];
+        passes.forEach((delay,index)=>{
+          const timer=setTimeout(async()=>{
+            if(version!==embeddedRestoreVersion||fullscreenActive||hasNativeFullscreen()||
+              !player||stopping)return;
+            const dimensions=embeddedDimensions();
+            const {width,height}=dimensions;
+            if(width<50||height<50)return;
+            const current=player;
+            try{
+              if(typeof current.resize==='function')await resizePlayerToViewport(current,width,height,'embedded-restore');
+              if(version!==embeddedRestoreVersion||current!==player||fullscreenActive)return;
+              if(index===passes.length-1)ensureEmbeddedCanvasFit(width,height);
+              else if(canvasFitOverride)applyCanvasFitOverride(width,height);
+              if(desktopBridge){
+                completeHostTransitionBridge(`pass-${index+1}`,width,height);
+                const stageRect=rectData(vid),canvasRect=rectData(primaryCanvas());
+                const ready=stageRect&&canvasRect&&
+                  Math.abs(stageRect.width-width)<=3&&Math.abs(stageRect.height-height)<=3&&
+                  canvasRect.width<=width+3&&canvasRect.height<=height+3&&
+                  canvasRect.width>=width*.88&&canvasRect.height>=height*.88;
+                if(ready){
+                  // No extra resize calls after SDK has returned to the card's dimensions.
+                  for(const remaining of embeddedRestoreTimers)clearTimeout(remaining);
+                  embeddedRestoreTimers=[];
+                  embeddedRestoring=false;
+                  embeddedSizeBeforeFullscreen=null;
+                  return;
+                }
+              }
+            }catch(err){}
+            if(index===passes.length-1&&version===embeddedRestoreVersion){
+              embeddedRestoring=false;
+              embeddedSizeBeforeFullscreen=null;
+              if(desktopBridge){
+                // Prevent a stuck freeze frame even if the SDK never settled.
+                ensureEmbeddedCanvasFit(width,height);
+                completeHostTransitionBridge('final-pass',width,height);
+                if(transitionBridgeActive){
+                  transitionBridgeTimer=setTimeout(()=>clearHostTransitionBridge('timeout'),250);
+                }
+              }
+            }
+          },delay);
+          embeddedRestoreTimers.push(timer);
+        });
+      };
+      const fullscreenAspect = () => {
+        const nodes=Array.from(vid.querySelectorAll('canvas,video')).filter(el=>el!==pipVideo);
+        nodes.sort((a,b)=>((b.videoWidth||b.width||0)*(b.videoHeight||b.height||0))-
+          ((a.videoWidth||a.width||0)*(a.videoHeight||a.height||0)));
+        for(const el of nodes){
+          const width=el.videoWidth||el.width||0;
+          const height=el.videoHeight||el.height||0;
+          if(width>=64&&height>=64&&width/height>=.5&&width/height<=4)return width/height;
+        }
+        return 16/9; // Only used if SDK has not exposed an intrinsic video size.
+      };
+      const fullscreenDimensions = () => {
+        const options=[];
+        const add=(kind,width,height)=>{
+          if(Number.isFinite(width)&&Number.isFinite(height)&&width>0&&height>0)
+            options.push({kind,width:Math.round(width),height:Math.round(height)});
+        };
+        const root=rectData(document.documentElement);
+        const hostRoot=rectData(hostDocument?.documentElement);
+        add('fullscreen-root',root?.width,root?.height);
+        add('host-window',hostDocument?.defaultView?.innerWidth,hostDocument?.defaultView?.innerHeight);
+        add('host-root',hostRoot?.width,hostRoot?.height);
+        add('screen',window.screen?.width,window.screen?.height);
+        add('frame-window',innerWidth,innerHeight);
+        const originalWidth=ownFrame?.clientWidth||vid.clientWidth||0;
+        const originalHeight=ownFrame?.clientHeight||vid.clientHeight||0;
+        // Prefer the actual fullscreen element when it has clearly expanded.
+        // Some Safari versions keep the iframe's viewport at card dimensions;
+        // host/screen metrics are required in that case.
+        const expandedRoot=options.find(o=>o.kind==='fullscreen-root'&&
+          (o.width>originalWidth*1.25||o.height>originalHeight*1.25));
+        const chosen=expandedRoot||options
+          .filter(o=>o.kind!=='frame-window')
+          .sort((a,b)=>b.width*b.height-a.width*a.height)[0]||options[0];
+        return {chosen,original:{width:originalWidth,height:originalHeight},candidates:options};
+      };
+      const updateFullscreenStage = reason => {
+        const rootStyle=document.documentElement.style;
+        const clearFullscreenStage = () => {
+          document.documentElement.classList.remove('luxe-host-fullscreen');
+          for(const name of ['--luxe-fs-video-left','--luxe-fs-video-top',
+            '--luxe-fs-video-width','--luxe-fs-video-height','--luxe-host-frame-height'])
+            rootStyle.removeProperty(name);
+        };
+        if(fullscreenActive&&isHostFullscreen()&&!isInnerFullscreen()){
+          safariLayoutSignature=null;
+          // Chrome: the iframe is the fullscreen element in its ShadowRoot,
+          // while #video retains its 492px card-sized SDK inline dimensions.
+          // The outer iframe rect, not innerHeight, is the visible frame area.
+          const frame=rectData(ownFrame);
+          const frameWidth=frame?.width||innerWidth;
+          const frameHeight=frame?.height||innerHeight;
+          const aspect=fullscreenAspect();
+          const videoWidth=Math.min(frameWidth,frameHeight*aspect);
+          const videoHeight=videoWidth/aspect;
+          const left=(frameWidth-videoWidth)/2;
+          const top=(frameHeight-videoHeight)/2;
+          const signature=[frameWidth,frameHeight,videoWidth,videoHeight,left,top]
+            .map(Math.round).join('/');
+          if(signature===hostLayoutSignature)return;
+          hostLayoutSignature=signature;
+          clearTimeout(fullscreenLayoutTimer);
+          rootStyle.setProperty('--luxe-fs-video-left',`${left.toFixed(2)}px`);
+          rootStyle.setProperty('--luxe-fs-video-top',`${top.toFixed(2)}px`);
+          rootStyle.setProperty('--luxe-fs-video-width',`${videoWidth.toFixed(2)}px`);
+          rootStyle.setProperty('--luxe-fs-video-height',`${videoHeight.toFixed(2)}px`);
+          rootStyle.setProperty('--luxe-host-frame-height',`${frameHeight}px`);
+          document.documentElement.classList.add('luxe-host-fullscreen');
+          schedulePlayerResize();
+          if(reason!=='host-settled')fullscreenLayoutTimer=setTimeout(()=>{
+            if(fullscreenActive&&isHostFullscreen()&&!isInnerFullscreen())
+              updateFullscreenStage('host-settled');
+          },210);
+          return;
+        }
+        hostLayoutSignature=null;
+        clearTimeout(fullscreenLayoutTimer);
+        if(!fullscreenActive||!isInnerFullscreen()){
+          safariLayoutSignature=null;
+          clearFullscreenStage();
+          if(fullscreenMode==='video'&&fullscreenActive){
+            return;
+          }
+          if(fullscreenMode==='sdk'&&fullscreenActive){
+            return;
+          }
+          if(embeddedSizeBeforeFullscreen&&!stopping)scheduleEmbeddedRecovery();
+          else schedulePlayerResize();
+          return;
+        }
+        // Safari desktop: preserve the previously verified inner-document
+        // fullscreen calculation and CSS layout without changing its logic.
+        document.documentElement.classList.remove('luxe-host-fullscreen');
+        rootStyle.removeProperty('--luxe-host-frame-height');
+        const viewport=fullscreenDimensions();
+        const {width,height}=viewport.chosen||{width:innerWidth,height:innerHeight};
+        const aspect=fullscreenAspect();
+        const videoWidth=Math.min(width,height*aspect);
+        const videoHeight=videoWidth/aspect;
+        const left=(width-videoWidth)/2;
+        const top=(height-videoHeight)/2;
+        const signature=[width,height,videoWidth,videoHeight,left,top]
+          .map(value=>Math.round(value*10)/10).join('/');
+        if(signature===safariLayoutSignature)return;
+        safariLayoutSignature=signature;
+        rootStyle.setProperty('--luxe-fs-video-left',`${left.toFixed(2)}px`);
+        rootStyle.setProperty('--luxe-fs-video-top',`${top.toFixed(2)}px`);
+        rootStyle.setProperty('--luxe-fs-video-width',`${videoWidth.toFixed(2)}px`);
+        rootStyle.setProperty('--luxe-fs-video-height',`${videoHeight.toFixed(2)}px`);
+        schedulePlayerResize();
+        if(reason!=='settled')fullscreenLayoutTimer=setTimeout(()=>{
+          if(fullscreenActive&&isInnerFullscreen())updateFullscreenStage('settled');
+        },420);
+      };
+      window.addEventListener('resize',()=>{
+        if(fullscreenActive&&isInnerFullscreen())updateFullscreenStage('window-resize');
+        else if(fullscreenActive&&isHostFullscreen())updateFullscreenStage('host-window-resize');
+      },{passive:true});
+      // Fullscreen transition may change iframe size after the initial click.
+      if(ownFrame && typeof ResizeObserver==='function'){
+        const observer=new ResizeObserver(()=>{
+          if(fullscreenActive&&isHostFullscreen()&&!isInnerFullscreen())
+            updateFullscreenStage('host-frame-resize');
+        });
+        observer.observe(ownFrame);
+        window.addEventListener('pagehide',()=>observer.disconnect(),{once:true});
+      }
+      // Fullscreen may also be exited using Esc/browser controls. Listen to
+      // the document owning the iframe, not just the iframe's document.
+      const syncNativeFullscreen = () => {
+        const nativeActive=hasNativeFullscreen();
+        if(nativeActive){
+          if(fullscreenMode!=='native'||!fullscreenActive){
+            fullscreenMode='native';updateFullscreenUI(true);
+          }
+        }else if(fullscreenMode==='native'){
+          clearEntryTransitionBridge('fullscreen-exited');
+          startHostTransitionBridge('browser-fullscreen-exited');
+          fullscreenMode=null;updateFullscreenUI(false);
+        }
+      };
+      if(frameRoot&&frameRoot!==hostDocument){
+        frameRoot.addEventListener?.('fullscreenchange',syncNativeFullscreen);
+        frameRoot.addEventListener?.('webkitfullscreenchange',syncNativeFullscreen);
+      }
+      hostDocument?.addEventListener('fullscreenchange',syncNativeFullscreen);
+      hostDocument?.addEventListener('webkitfullscreenchange',syncNativeFullscreen);
+      document.addEventListener('fullscreenchange',syncNativeFullscreen);
+      document.addEventListener('webkitfullscreenchange',syncNativeFullscreen);
+      const sdkFullscreenChanged = info => {
+        // SDK v8.2+ reports the actual fullscreen state in data; don't
+        // mistake an event object for a successful fullscreen transition.
+        const data=info?.data||info;
+        const active=typeof data?.isCurrentFullscreen==='boolean'?
+          data.isCurrentFullscreen:
+          typeof data?.isFullscreen==='boolean'?data.isFullscreen:null;
+        if(active===true){fullscreenMode='sdk';updateFullscreenUI(true);}
+        else if(active===false&&fullscreenMode==='sdk'){
+          fullscreenMode=null;updateFullscreenUI(false);
+        }
+      };
+      const invokeSdkFullscreen = () => {
+        const method=player?.fullscreen || player?.fullScreen;
+        if(typeof method!=='function'){return false;
+        }
+        try{
+          Promise.resolve(method.call(player)).then(()=>{}).catch(err=>{
+            clearTimeout(fullscreenFeedbackTimer);
+            if(!hasNativeFullscreen()&&!fullscreenActive){
+              signal('FULLSCREEN_UNAVAILABLE');showToast('当前环境无法进入全屏');
+            }
+          });
+          clearTimeout(fullscreenFeedbackTimer);
+          fullscreenFeedbackTimer=setTimeout(()=>{
+            if(!hasNativeFullscreen()&&!fullscreenActive){
+              signal('FULLSCREEN_UNAVAILABLE');showToast('未检测到全屏状态变化');
+            }
+          },1300);
+          return true;
+        }catch(err){return false;}
+      };
+      // iPhone WKWebView does not expose Element.requestFullscreen() for this
+      // Canvas-rendered stream. Reuse the *already prepared* Canvas MediaStream
+      // through the existing hidden PiP video, so iOS may present it via its
+      // native video fullscreen UI. No extra EZVIZ cloud session is created.
+      const clearNativeFullscreenListeners = video => {
+        video?.removeEventListener('webkitbeginfullscreen',nativeVideoFullscreenStarted);
+        video?.removeEventListener('webkitendfullscreen',nativeVideoFullscreenEnded);
+        if(nativeFullscreenPresentationListener)
+          video?.removeEventListener('webkitpresentationmodechanged',nativeFullscreenPresentationListener);
+        nativeFullscreenPresentationListener=null;
+      };
+      const ensureNativeMirrorPlaying = reason => {
+        const video=nativeFullscreenVideo;
+        if(video!==pipVideo)return;
+        const generation=++nativeResumeGeneration;
+        clearTimeout(nativeResumeTimer);
+        const attempt=index=>{
+          if(generation!==nativeResumeGeneration||nativeFullscreenVideo!==video||
+             fullscreenMode!=='video'||!fullscreenActive||stopping)return;
+          if(video.paused){
+            try{Promise.resolve(video.play()).then(()=>{}).catch(err=>{});}
+            catch(err){}
+          }
+          if(index===0)nativeResumeTimer=setTimeout(()=>attempt(1),150);
+        };
+        attempt(0);
+      };
+      const nativeVideoFullscreenStarted = () => {
+        if(fullscreenMode==='video'&&fullscreenActive){
+          if(nativeFullscreenVideo===pipVideo){setNativeVideoMuted(!soundOn,'native-fullscreen-repeat');ensureNativeMirrorPlaying('native-fullscreen-repeat');}
+          return;
+        }
+        fullscreenMode='video';
+        updateFullscreenUI(true);
+        if(nativeFullscreenVideo===pipVideo){
+          setNativeVideoMuted(!soundOn,'native-fullscreen-start');
+          resumeNativeControlAudioContext('native-fullscreen-entered');
+          ensureNativeMirrorPlaying('native-fullscreen-start');
+        }
+        signal('NATIVE_FULLSCREEN_ENTERED');
+      };
+      const nativeVideoFullscreenEnded = () => {
+        const video=nativeFullscreenVideo;
+        nativeResumeGeneration++;clearTimeout(nativeResumeTimer);nativeResumeTimer=null;
+        clearNativeFullscreenListeners(video);
+        nativeFullscreenVideo=null;
+        const wasFull=fullscreenMode==='video';
+        if(wasFull){
+          fullscreenMode=null;
+          updateFullscreenUI(false);
+          signal('NATIVE_FULLSCREEN_EXITED');
+        }
+      };
+      const enterNativeVideoFullscreen = () => {
+        if(!/iPhone|iPod/i.test(navigator.userAgent)){return false;
+        }
+        const videos=[];
+        const visit = (root,depth=0) => {
+          if(!root||depth>8)return;
+          for(const el of root.querySelectorAll?.('*')||[]){
+            if(el instanceof HTMLVideoElement && el!==pipVideo && !el.paused &&
+              el.readyState>=2 && el.videoWidth>0 && el.videoHeight>0)videos.push(el);
+            if(el.shadowRoot)visit(el.shadowRoot,depth+1);
+          }
+        };
+        visit(vid);
+        const original=videos.sort((a,b)=>b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight)[0];
+        // WebKit renders this EZUIKit stream into Canvas, rather than <video>.
+        // PiP prewarming created a separate HTMLVideoElement from that canvas.
+        const mirror=Boolean(!original && pipVideo.srcObject && pipStream &&
+          pipStream.getVideoTracks().some(track=>track.readyState==='live') &&
+          pipVideo.readyState>=2 && pipVideo.videoWidth>0 && pipVideo.videoHeight>0);
+        const video=original||(mirror?pipVideo:null);
+        const nativeMethod=typeof video?.webkitEnterFullscreen==='function';
+        const allowedNative=nativeMethod && video.webkitSupportsFullscreen!==false;
+        const presentationMethod=typeof video?.webkitSetPresentationMode==='function';
+        let presentationSupported=false;
+        try{presentationSupported=presentationMethod &&
+          (typeof video.webkitSupportsPresentationMode!=='function'||
+            video.webkitSupportsPresentationMode('fullscreen'));}catch(_){}
+        if(!video||(!allowedNative&&!presentationSupported))return false;
+        nativeFullscreenVideo=video;
+        if(video===pipVideo){
+          setNativeVideoMuted(!soundOn,'before-native-fullscreen-request');
+          resumeNativeControlAudioContext('native-fullscreen-button');
+        }
+        video.addEventListener('webkitbeginfullscreen',nativeVideoFullscreenStarted);
+        video.addEventListener('webkitendfullscreen',nativeVideoFullscreenEnded);
+        nativeFullscreenPresentationListener=()=>{
+          const mode=video.webkitPresentationMode??null;
+          if(mode==='fullscreen')nativeVideoFullscreenStarted();
+          else if(mode==='inline'&&fullscreenMode==='video')nativeVideoFullscreenEnded();
+        };
+        video.addEventListener('webkitpresentationmodechanged',nativeFullscreenPresentationListener);
+        try{
+          const method=allowedNative?'webkitEnterFullscreen':'webkitSetPresentationMode';
+          if(allowedNative)video.webkitEnterFullscreen();
+          else video.webkitSetPresentationMode('fullscreen');
+          setTimeout(()=>{
+            if(nativeFullscreenVideo!==video)return;
+            const entered=fullscreenMode==='video'||video.webkitDisplayingFullscreen===true||
+              video.webkitPresentationMode==='fullscreen';
+            if(!entered){
+              clearNativeFullscreenListeners(video);
+              nativeFullscreenVideo=null;
+              signal('FULLSCREEN_UNAVAILABLE');
+              showToast('当前 App 未能开启系统视频全屏');
+            }
+          },650);
+          return true;
+        }catch(err){
+          clearNativeFullscreenListeners(video);
+          nativeFullscreenVideo=null;
+          return false;
+        }
+      };
+      const leaveFullscreen = () => {
+        if(fullscreenMode==='video'&&nativeFullscreenVideo){
+          try{
+            if(typeof nativeFullscreenVideo.webkitExitFullscreen==='function')
+              nativeFullscreenVideo.webkitExitFullscreen();
+            else if(typeof nativeFullscreenVideo.webkitSetPresentationMode==='function')
+              nativeFullscreenVideo.webkitSetPresentationMode('inline');
+            else throw new Error('Native video exit unavailable');
+            return;
+          }catch(err){}
+        }
+        if(isHostFullscreen()&&hostDocument){
+          clearEntryTransitionBridge('exit-click');
+          startHostTransitionBridge('exit-click');
+          const exit=hostDocument.exitFullscreen||hostDocument.webkitExitFullscreen;
+          if(typeof exit==='function'){
+            try{Promise.resolve(exit.call(hostDocument)).catch(err=>{showToast('无法退出全屏');
+            });}catch(err){showToast('无法退出全屏');}
+            return;
+          }
+        }
+        if(isInnerFullscreen()){
+          clearEntryTransitionBridge('exit-click');
+          const exit=document.exitFullscreen||document.webkitExitFullscreen;
+          if(typeof exit==='function'){
+            try{Promise.resolve(exit.call(document)).catch(err=>{showToast('无法退出全屏');
+            });}catch(err){showToast('无法退出全屏');}
+            return;
+          }
+        }
+        const method=player?.exitFullscreen||player?.cancelFullScreen;
+        if(typeof method==='function'){
+          try{Promise.resolve(method.call(player)).catch(err=>{showToast('无法退出全屏');
+          });}catch(err){showToast('无法退出全屏');}
+        }else{
+          fullscreenMode=null;updateFullscreenUI(false);
+        }
+      };
+      // On macOS WebKit, prefer requesting fullscreen from within the
+      // player document. Safari's iframe-element route caused the HA card's
+      // disconnectedCallback() to fire during the transition.
+      // Keep the original parent-iframe route on Chromium and iPhone while
+      // validating the new Safari-specific behavior on real hardware.
+      const enterFullscreen = () => {
+        clearEntryTransitionBridge('new-enter');
+        clearHostTransitionBridge('new-enter');
+        hostLayoutSignature=null;
+        safariLayoutSignature=null;
+        lastNativeResize=null;
+        cancelEmbeddedRecovery();
+        clearCanvasFitOverride();
+        embeddedSizeBeforeFullscreen={width:Math.round(vid.clientWidth),
+          height:Math.round(vid.clientHeight)};
+        if(enterNativeVideoFullscreen())return;
+        const safariDesktop=isWebKit && !/iPhone|iPod|iPad/i.test(navigator.userAgent);
+        const innerTarget=document.documentElement;
+        const canInner=typeof (innerTarget.requestFullscreen||innerTarget.webkitRequestFullscreen)==='function';
+        const preferInner=safariDesktop && canInner;
+        const target=preferInner?innerTarget:(ownFrame||innerTarget);
+        const request=target?.requestFullscreen||target?.webkitRequestFullscreen;
+        if(typeof request==='function'){
+          // Synchronous canvas capture runs within the user click; request
+          // fullscreen immediately afterwards, preserving user activation.
+          startEntryTransitionBridge();
+          try{
+            const promise=request.call(target);
+            Promise.resolve(promise).then(()=>{
+              syncNativeFullscreen();
+              if(!hasNativeFullscreen()&&!fullscreenActive){
+                clearEntryTransitionBridge('native-unavailable');
+                signal('FULLSCREEN_UNAVAILABLE');showToast('未能进入全屏');
+              }
+            }).catch(err=>{
+              clearEntryTransitionBridge('native-rejected');
+              if(!invokeSdkFullscreen()){
+                signal('FULLSCREEN_UNAVAILABLE');showToast('当前环境不支持全屏');
+              }
+            });
+            return;
+          }catch(err){
+            clearEntryTransitionBridge('native-thrown');
+          } // Fallback to SDK
+        }
+        if(/iPhone|iPod/i.test(navigator.userAgent)){
+          signal('FULLSCREEN_UNAVAILABLE');
+          showToast(pipPreparing?'全屏视频准备中，请稍后再试':'当前 App 无法使用原生视频全屏');
+          if(!pipStream&&!pipPreparing)void preparePiP();
+          embeddedSizeBeforeFullscreen=null;
+          return;
+        }
+        if(!invokeSdkFullscreen()){
+          signal('FULLSCREEN_UNAVAILABLE');showToast('当前环境不支持全屏');
+        }
+      };
+      if(typeof ResizeObserver==='function'){
+        const observer=new ResizeObserver(schedulePlayerResize);
+        observer.observe(vid);
+      }
+      // A PiP window needs an HTMLVideoElement. EZUIKit may render H.265
+      // frames to canvas; in that case we mirror the displayed canvas into a
+      // separate video stream. This is experimental and never changes the
+      // original SDK renderer or the original cloud session.
+      const visibleSource = () => {
+        const found = [];
+        const visit = (root, depth=0) => {
+          if (!root || depth > 8 || found.length > 120) return;
+          const elements = root.querySelectorAll?.('video,canvas,*') || [];
+          for (const el of elements) {
+            if (el instanceof HTMLVideoElement && el !== pipVideo &&
+                el.videoWidth > 64 && el.videoHeight > 64) found.push(el);
+            else if (el instanceof HTMLCanvasElement &&
+                el.width > 64 && el.height > 64) found.push(el);
+            if (el.shadowRoot) visit(el.shadowRoot,depth+1);
+          }
+        };
+        visit(vid);
+        return found.sort((a,b) =>
+          ((b.videoWidth||b.width)*(b.videoHeight||b.height)) -
+          ((a.videoWidth||a.width)*(a.videoHeight||a.height)))[0];
+      };
+      const actualPiPMode = () =>
+        pipVideo.webkitPresentationMode==='picture-in-picture'?'webkit':
+        document.pictureInPictureElement===pipVideo?'standard':null;
+      const updatePiP = () => {
+        buttonPiP.setAttribute('aria-pressed',String(pipActive));
+        buttonPiP.setAttribute('aria-label',pipActive?'退出画中画':'进入画中画');
+        buttonPiP.title=pipActive?'退出画中画':'画中画（试验）';
+      };
+      const ensurePiPMirrorPlaying = reason => {
+        const video=pipVideo;
+        const generation=++pipResumeGeneration;
+        clearTimeout(pipResumeTimer);pipResumeTimer=null;
+        const check=attempt=>{
+          if(generation!==pipResumeGeneration||!pipActive||stopping)return;
+          if(video.paused||video.readyState<2){
+            try{Promise.resolve(video.play()).then(()=>{}).catch(err=>{});}
+            catch(err){}
+          }
+          if(attempt===0)pipResumeTimer=setTimeout(()=>check(1),180);
+        };
+        check(0);
+      };
+      const setPiPActive = (active,mode,via) => {
+        if(active===pipActive)return;
+        pipActive=Boolean(active);
+        pipLastMode=mode||pipLastMode;
+        updatePiP();
+        if(pipActive){
+          setNativeVideoMuted(!soundOn,'pip-enter');
+          resumeNativeControlAudioContext('pip-entered');
+          ensurePiPMirrorPlaying('native-presentation-entered');
+        }else{
+          pipResumeGeneration++;clearTimeout(pipResumeTimer);pipResumeTimer=null;
+        }
+        const pipBox=pipVideo.getBoundingClientRect();
+        const stageBox=vid.getBoundingClientRect();
+        signal(active?'PIP_ENTERED':'PIP_EXITED');
+      };
+      // Keep Safari's canvas mirror prepared before the user clicks PiP.
+      // This ensures entry can be requested synchronously, with no async
+      // play() between the click and WebKit's media-gesture check.
+      const preparePiP = () => {
+        if(pipStream?.getVideoTracks?.().some(t=>t.readyState==='live')&&
+           pipVideo.readyState>=2){
+          if(!pipVideo.paused)return Promise.resolve(true);
+          return pipVideo.play().then(()=>true).catch(err=>{return false;
+          });
+        }
+        if(pipPreparation)return pipPreparation;
+        if(!firstFrame||!player||stopping)return Promise.resolve(false);
+        pipPreparing=true;
+        pipPreparation=(async()=>{
+          try{
+            const source=visibleSource();
+            if(!source||typeof source.captureStream!=='function'){
+              return false;
+            }
+            if(pipStream){for(const track of pipStream.getTracks())track.stop();pipStream=null;}
+            releaseSilentAudioSource('rebuild-pip-stream');
+            pipStream=source.captureStream(15);
+            if(!pipStream?.getVideoTracks?.().length)return false;
+            // iOS native player controls only affect the media element's own audio state.
+            // Add a zero-gain track so the mute button is interactive; actual sound still
+            // comes from EZUIKit and is toggled through openSound()/closeSound().
+            if(isIOSDevice||isWebKit)ensureNativeControlAudioTrack(pipStream);
+            pipVideo.srcObject=pipStream;
+            // The native icon mirrors the SDK's actual sound state. The stream's
+            // zero-gain track is only a control bridge; camera audio remains in EZUIKit.
+            pipVideo.muted=!soundOn;
+            pipVideo.volume=1;
+            pipVideo.playsInline=true;
+            await pipVideo.play();
+            return true;
+          }catch(err){return false;}
+          finally{pipPreparing=false;}
+        })();
+        return pipPreparation.finally(()=>{pipPreparation=null;});
+      };
+      const releasePiP = async () => {
+        pipReleaseInProgress=true;
+        clearTimeout(pipPrewarmTimer);
+        try{
+          if(pipVideo.webkitPresentationMode==='picture-in-picture' &&
+              typeof pipVideo.webkitSetPresentationMode==='function'){
+            try{pipVideo.webkitSetPresentationMode('inline');}
+            catch(err){}
+          }
+          if(document.pictureInPictureElement===pipVideo){
+            try{await document.exitPictureInPicture();}
+            catch(err){}
+          }
+        }finally{
+          if(pipStream){for(const track of pipStream.getTracks())track.stop();pipStream=null;}
+          releaseSilentAudioSource('release-pip');
+          pipVideo.pause();pipVideo.srcObject=null;
+          setPiPActive(false,pipLastMode,'release');
+          pipReleaseInProgress=false;
+        }
+      };
+      pipVideo.addEventListener('play',()=>{});
+      pipVideo.addEventListener('playing',()=>{});
+      pipVideo.addEventListener('pause',()=>{});
+      pipVideo.addEventListener('volumechange',()=>{
+        const muted=Boolean(pipVideo.muted);
+        if(nativeMuteExpected){
+          const expected=nativeMuteExpected;nativeMuteExpected=null;
+          if(performance.now()-expected.at<1200&&muted===expected.muted){return;
+          }
+        }
+        if(!nativeMediaPresentationActive())return;
+        resumeNativeControlAudioContext('native-volumechange');
+        void syncSdkSoundFromNativeMute(muted,'native-volumechange');
+      });
+      pipVideo.addEventListener('enterpictureinpicture',()=>{
+        setPiPActive(true,'standard','enterpictureinpicture');
+      });
+      pipVideo.addEventListener('leavepictureinpicture',()=>{
+        setPiPActive(false,'standard','leavepictureinpicture');
+        // Chrome mirrors are still released after leaving. WebKit is kept
+        // warm during a playing session so another click remains synchronous.
+        if(!isWebKit&&!pipReleaseInProgress){
+          if(pipStream){for(const track of pipStream.getTracks())track.stop();pipStream=null;}
+          pipVideo.pause();pipVideo.srcObject=null;
+        }
+      });
+      pipVideo.addEventListener('webkitpresentationmodechanged',()=>{
+        const mode=pipVideo.webkitPresentationMode??null;
+        setPiPActive(mode==='picture-in-picture','webkit','webkitpresentationmodechanged');
+      });
+      const prewarmSafariPiP = () => {
+        if(!isWebKit||!supportsPiP||!firstFrame||stopping)return;
+        clearTimeout(pipPrewarmTimer);
+        pipPrewarmTimer=setTimeout(async()=>{
+          // SDK canvas may appear slightly after the first-frame callback.
+          for(let i=0;i<4&&firstFrame&&!stopping&&!pipActive;i++){
+            if(await preparePiP())return;
+            await new Promise(r=>setTimeout(r,350));
+          }
+        },120);
+      };
+      const onFrame = () => {
+        if (firstFrame || stopping) return;
+        firstFrame = true;
+        firstFrameAt=Date.now();
+        updateTalkUI();
+        scheduleInitialQualitySync('first-frame');
+        document.body.classList.add('live');
+        // Apply the YAML muted setting to the real EZUIKit audio engine before
+        // declaring playback ready. A bounded fallback prevents audio API stalls
+        // from leaving the parent card stuck in its loading state.
+        let finalized=false;
+        const finalize=reason=>{
+          if(finalized||stopping||!player)return;
+          finalized=true;clearTimeout(firstFrameAudioFallbackTimer);firstFrameAudioFallbackTimer=null;
+          firstFrameSignaled=true;
+          qualityRenderSnapshot('first-frame-ready');
+          signal('FIRST_FRAME');
+          prewarmSafariPiP();
+        };
+        clearTimeout(firstFrameAudioFallbackTimer);
+        firstFrameAudioFallbackTimer=setTimeout(()=>finalize('audio-sync-timeout'),450);
+        Promise.resolve().then(()=>applyInitialSdkSoundState('first-frame')).then(()=>finalize('audio-sync-complete'))
+          .catch(err=>{finalize('audio-sync-error');});
+      };
+      async function stop() {
+        if (stopping) return;
+        stopping = true;
+        hideControls();
+        clearTimeout(resizeTimer);
+        clearTimeout(fullscreenFeedbackTimer);
+        clearTimeout(fullscreenLayoutTimer);
+        cancelEmbeddedRecovery();
+        clearEntryTransitionBridge('stop');
+        clearHostTransitionBridge('stop');
+        clearCanvasFitOverride();
+        embeddedSizeBeforeFullscreen=null;
+        clearTimeout(pipPrewarmTimer);
+        clearTimeout(firstFrameAudioFallbackTimer);firstFrameAudioFallbackTimer=null;
+        clearTimeout(pipResumeTimer);pipResumeTimer=null;pipResumeGeneration++;
+        firstFrameSignaled=false;initialSoundSyncBusy=false;
+        nativeResumeGeneration++;clearTimeout(nativeResumeTimer);nativeResumeTimer=null;
+        // Always stop microphone capture before destroying the player or iframe.
+        resetTalkStateForTeardown(player);
+        // Unwind any fullscreen presentation before the iframe is removed.
+        if(fullscreenActive||hasNativeFullscreen())leaveFullscreen();
+        await releasePiP();
+        const old = player;
+        player = null;
+        firstFrame = false;
+        starting = false;
+        soundOn = false;
+        soundBusy = false;
+        talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;
+        talkSupported=false;buttonTalk.hidden=true;
+        updateTalkUI();
+        cancelQualityVerification();cancelQualityStreamResync();hideQualitySwitchOverlay('stop');
+        qualityOptions=[];qualityCurrentLevel=null;qualityCurrentConfirmed=false;qualityPendingVerification=false;
+        qualityEventCandidate=null;qualityEventCandidateAt=0;qualityBusy=false;qualityRequestedLevel=null;
+        qualityLatestStreamInfo=null;qualityLatestStreamAt=0;qualityLatestStreamKey=null;qualityLatestStreamStableCount=0;
+        qualityChangeStartedAt=0;qualityChangeResolvedAt=0;qualityChangeStreamKey=null;qualityChangeStreamStableCount=0;qualityChangeLatestStreamInfo=null;
+        qualityLatestVideoInfo=null;qualityLatestVideoInfoAt=0;
+        firstFrameAt=0;
+        qualityListTimedOut=false;clearTimeout(qualityListTimer);qualityListTimer=null;
+        buttonQuality.disabled=false;buttonQuality.textContent='清晰度';buttonQuality.title='设备当前清晰度尚未确认；点击查看支持档位';
+        qualityMenu.hidden=true;buttonQuality.setAttribute('aria-expanded','false');
+        buttonSound.disabled = false;
+        updateSoundUI();
+        document.body.classList.remove('live');
+        try {
+          if (old && typeof old.stop === 'function') {
+            await Promise.race([
+              Promise.resolve(old.stop()),
+              new Promise(resolve=>setTimeout(resolve,5000)),
+            ]);
+          }
+        } catch (_) { /* parent also enforces a bounded teardown */ }
+        renderer.replaceChildren();
+        fullscreenMode=null;
+        updateFullscreenUI(false);
+        signal('STOPPED');
+        stopping = false;
+      }
+      async function start(msg) {
+        if (starting || player || stopping) return;
+        micGate?.setTalkIntent?.(false,'player-start');
+        initialMuted=msg.muted!==false;
+        soundOn=false;
+        talkActive=false;talkBusy=false;talkStopping=false;talkStartInvoked=false;talkPreviousSoundOn=false;
+        talkSupported=false;buttonTalk.hidden=true;
+        talkAttemptGeneration++;settleTalkStart({code:-1,msg:'new playback session'});
+        clearTimeout(talkStartTimeout);talkStartTimeout=null;updateTalkUI();
+        cancelQualityVerification();cancelQualityStreamResync();hideQualitySwitchOverlay('start');
+        qualityOptions=[];qualityCurrentLevel=null;qualityCurrentConfirmed=false;qualityPendingVerification=false;
+        qualityEventCandidate=null;qualityEventCandidateAt=0;qualityBusy=false;qualityRequestedLevel=null;
+        qualityLatestStreamInfo=null;qualityLatestStreamAt=0;qualityLatestStreamKey=null;qualityLatestStreamStableCount=0;
+        qualityChangeStartedAt=0;qualityChangeResolvedAt=0;qualityChangeStreamKey=null;qualityChangeStreamStableCount=0;qualityChangeLatestStreamInfo=null;
+        qualityLatestVideoInfo=null;qualityLatestVideoInfoAt=0;
+        firstFrameAt=0;
+        qualityListTimedOut=false;clearTimeout(qualityListTimer);qualityListTimer=null;
+        buttonQuality.disabled=false;buttonQuality.textContent='清晰度';buttonQuality.title='设备当前清晰度尚未确认；点击查看支持档位';
+        qualityMenu.hidden=true;buttonQuality.setAttribute('aria-expanded','false');
+        firstFrameSignaled=false;
+        updateSoundUI();
+        pipVideo.muted=initialMuted;
+        if (!vendorReady) {signal('ERROR','sdk_not_installed');return;}
+        if (!msg.session || typeof msg.session.url !== 'string' ||
+            typeof msg.session.accessToken !== 'string' ||
+            !msg.session.url.startsWith('ezopen://') ||
+            msg.session.env?.domain !== 'https://open.ys7.com') {
+          signal('ERROR','invalid_session');return;
+        }
+        starting = true;
+        try {
+          const SDK = window.EZUIKit.EZUIKitPlayer;
+          const viewportWidth=Math.max(320,vid.clientWidth||640);
+          const viewportHeight=Math.max(180,vid.clientHeight||360);
+          const initialRender=configureRendererSize(viewportWidth,viewportHeight);
+          const options = {
+            id:'video-renderer',
+            url:msg.session.url,
+            accessToken:msg.session.accessToken,
+            width:initialRender.width,
+            height:initialRender.height,
+            template:'simple',
+            autoplay:true,
+            audio:false,
+            scaleMode:1,
+            env:{domain:'https://open.ys7.com'},
+            staticPath:'/luxe_ezviz/sdk/ezuikit_static',
+            handleFirstFrameDisplay:onFrame,
+            handleError:err=>{if(!stopping)signal('ERROR',cleanError(err));},
+          };
+          // A failed hook must not silently allow SDK initialization to request the mic.
+          if(!micGate?.isProtected?.())throw new Error('microphone_gate_install_failed');
+          player = new SDK(options);
+          const capacityPlayer = player;
+          bindQualityEvents(player,SDK);
+          bindTalkEvents(player,SDK);
+          // EZUIKit 9.0.5 emits getDeviceCapacity with data.support_talk.
+          // Only the documented REST capability value "1" enables the button;
+          // value "3", missing data, or request failure all leave it hidden.
+          if (typeof player.on === 'function' && SDK.EVENTS?.getDeviceCapacity) {
+            player.on(SDK.EVENTS.getDeviceCapacity, event => {
+              if(player !== capacityPlayer || stopping)return;
+              const supportTalk = event?.code === 0 || String(event?.code) === '0'
+                ? event?.data?.support_talk : null;
+              talkSupported = String(supportTalk) === '1';
+              updateTalkUI();
+            });
+          }
+          updateTalkUI();
+          buttonShot.hidden = typeof player.capturePicture !== 'function';
+          if (typeof player.on === 'function' && SDK.EVENTS?.firstFrameDisplay)
+            player.on(SDK.EVENTS.firstFrameDisplay,onFrame);
+          if (typeof player.on === 'function') {
+            if(SDK.EVENTS?.fullscreenChange)
+              player.on(SDK.EVENTS.fullscreenChange,sdkFullscreenChanged);
+            if(SDK.EVENTS?.fullscreen)
+              player.on(SDK.EVENTS.fullscreen,()=>{fullscreenMode='sdk';updateFullscreenUI(true);
+              });
+            if(SDK.EVENTS?.exitFullscreen)
+              player.on(SDK.EVENTS.exitFullscreen,()=>{
+                if(fullscreenMode==='sdk')fullscreenMode=null;
+                syncNativeFullscreen();
+                if(!hasNativeFullscreen())updateFullscreenUI(false);
+              });
+          }
+          signal('INITIALIZED');
+        } catch(err) {
+          signal('ERROR',cleanError(err));
+        } finally {
+          starting = false;
+          delete msg.session;
+        }
+      }
+      window.addEventListener('message',(event)=>{
+        if (event.origin!==iframeOrigin||event.source!==window.parent) return;
+        const data=event.data;
+        if (!data||data.type!=='LUXE_EZVIZ_PARENT'||typeof data.id!=='string')return;
+        if (data.command==='START'&&!currentId){
+          currentId=data.id;
+          start(data);
+        }
+        else if(data.command==='STOP'&&currentId===data.id)stop();
+      });
+      // Hover controls on desktop; touchscreen taps toggle them without
+      // cancelling vertical scrolling or intercepting the SDK's playback area.
+      document.addEventListener('pointerenter',(event)=>{
+        if(event.pointerType==='mouse')showControls();
+      },true);
+      document.addEventListener('pointermove',(event)=>{
+        if(event.pointerType==='mouse')showControls();
+      },{capture:true,passive:true});
+      document.addEventListener('pointerleave',(event)=>{
+        if(event.pointerType==='mouse' && !event.relatedTarget) scheduleHide(800);
+      },true);
+      document.addEventListener('pointerdown',(event)=>{
+        if(event.pointerType!=='touch'&&event.pointerType!=='pen')return;
+        touchStart={id:event.pointerId,x:event.clientX,y:event.clientY,
+          time:performance.now()};
+      },{capture:true,passive:true});
+      document.addEventListener('pointerup',(event)=>{
+        if(!touchStart||event.pointerId!==touchStart.id)return;
+        const start=touchStart;touchStart=null;
+        if(Math.hypot(event.clientX-start.x,event.clientY-start.y)>10||
+           performance.now()-start.time>650)return;
+        if(event.target?.closest?.('button')){
+          if(firstFrame)scheduleHide(3000);
+          return;
+        }
+        if(!firstFrame||stopping)return;
+        if(document.body.classList.contains('controls-visible'))hideControls();
+        else showControls(true);
+      },{capture:true,passive:true});
+      document.addEventListener('pointercancel',()=>{touchStart=null;},{capture:true,passive:true});
+      document.addEventListener('focusin',()=>showControls(true));
+      document.addEventListener('focusout',()=>scheduleHide(800));
+      btnStop.addEventListener('click',()=>{
+        if(!player||!firstFrame||stopping)return;
+        signal('STOP_REQUEST');
+        hideControls();
+      });
+      buttonSound.addEventListener('click',async()=>{
+        if(!player||!firstFrame||stopping||soundBusy||talkActive||talkBusy)return;
+        soundBusy=true;
+        buttonSound.disabled=true;
+        const next=!soundOn;
+        const currentPlayer=player;
+        try {
+          await Promise.resolve(next?currentPlayer.openSound():currentPlayer.closeSound());
+          if(currentPlayer!==player||stopping)return;
+          soundOn=next;
+          updateSoundUI();
+          if(nativeMediaPresentationActive())setNativeVideoMuted(!soundOn,'custom-sound-control');
+          scheduleHide(3000);
+        } catch (_) {
+          if(currentPlayer===player&&!stopping){signal('AUDIO_ERROR');showToast('声音开启失败');}
+        } finally {
+          if(currentPlayer===player&&!stopping){soundBusy=false;updateSoundUI();updateTalkUI();}
+        }
+      });
+      buttonTalk.addEventListener('click',event=>{
+        if(!talkSupported||talkBusy||!player||!firstFrame||stopping){return;}
+        if(talkActive)void stopTalkByUser('button');
+        else void startTalkByUser();
+      });
+      buttonShot.addEventListener('click', async()=>{
+        if(!firstFrame||!player||stopping||screenshotBusy)return;
+        if(typeof player.capturePicture!=='function'){
+          showToast('当前 SDK 不支持截图');return;
+        }
+        screenshotBusy=true;buttonShot.disabled=true;
+        const name='ezviz-'+new Date().toISOString().replace(/[:.]/g,'-');
+        const currentPlayer=player;
+        try{
+          await Promise.resolve(currentPlayer.capturePicture(name));
+          if(currentPlayer===player&&!stopping)
+            showToast('截图已请求保存，请检查下载或照片');
+        }catch(_){if(currentPlayer===player&&!stopping)showToast('截图失败，请重试');}
+        finally{screenshotBusy=false;buttonShot.disabled=false;scheduleHide(3000);}
+      });
+      buttonPiP.addEventListener('click',()=>{
+        if(talkBusy){showToast('对讲正在连接或结束，请稍后再试');return;}
+        if(talkActive)stopTalkForPiP();
+        if(!firstFrame||!player||stopping||pipBusy){return;}
+        if(!supportsPiP){showToast('当前浏览器不支持画中画');return;}
+        // Exit paths are kept synchronous where WebKit requires a gesture.
+        if(actualPiPMode()){
+          try{
+            if(actualPiPMode()==='webkit')pipVideo.webkitSetPresentationMode('inline');
+            else Promise.resolve(document.exitPictureInPicture()).catch(err=>{});
+          }catch(err){showToast('无法退出画中画');}
+          return;
+        }
+        resumeNativeControlAudioContext('pip-button-gesture');
+        // A Safari request must occur directly in this click handler:
+        // an awaited pipVideo.play() made the old Safari path throw NotAllowedError.
+        if(isWebKit && (!pipStream||pipVideo.readyState<2)){
+          showToast('画中画正在准备，请稍后再点一次');
+          preparePiP();
+          return;
+        }
+        pipBusy=true;buttonPiP.disabled=true;
+        const done=()=>{pipBusy=false;buttonPiP.disabled=false;scheduleHide(3000);};
+        const requestNow=()=>{
+          const canWebkit=isWebKit&&typeof pipVideo.webkitSetPresentationMode==='function'&&
+            (typeof pipVideo.webkitSupportsPresentationMode!=='function'||
+             pipVideo.webkitSupportsPresentationMode('picture-in-picture'));
+          if(canWebkit){
+            try{
+              // Synchronous WebKit presentation-mode request. Do not await play().
+              pipVideo.webkitSetPresentationMode('picture-in-picture');
+              if(pipVideo.webkitPresentationMode==='picture-in-picture')
+                setPiPActive(true,'webkit','webkitSetPresentationMode');
+              // Some WKWebViews return from the method but never enter PiP.
+              setTimeout(()=>{
+                if(!actualPiPMode()&&!pipActive&&!stopping)
+                  showToast('未能进入画中画，请重试');
+              },1000);
+              done();return;
+            }catch(err){
+            }
+          }
+          if(!standardPiP){
+            showToast('此环境无法进入画中画');done();return;
+          }
+          try{
+            const pending=pipVideo.requestPictureInPicture();
+            Promise.resolve(pending).then(()=>{
+            }).catch(err=>{
+              showToast('画中画请求被浏览器拒绝，请重试');
+            }).finally(done);
+          }catch(err){
+            showToast('画中画不可用，请稍后重试');done();
+          }
+        };
+        if(isWebKit){requestNow();return;}
+        // Chrome keeps the original lazy preparation path; it already worked
+        // in previous verified build and needs no additional background mirroring.
+        preparePiP().then(ok=>{
+          if(!ok){showToast('无法获取画中画视频轨道');done();return;}
+          requestNow();
+        }).catch(err=>{
+          showToast('画中画初始化失败');done();
+        });
+      });
+      buttonFull.addEventListener('click',()=>{
+        if(!firstFrame||!player||stopping||fullscreenBusy){return;}
+        // This handler is the actual user gesture (not an iframe message).
+        // Keep API calls in this stack so browsers do not reject fullscreen.
+        fullscreenBusy=true;
+        try{
+          if(fullscreenActive||hasNativeFullscreen())leaveFullscreen();
+          else {resumeNativeControlAudioContext('fullscreen-button-gesture');enterFullscreen();}
+          scheduleHide(3000);
+        }finally{
+          fullscreenBusy=false;
+        }
+      });
+      window.addEventListener('pagehide',()=>{
+        try{if(fullscreenActive||hasNativeFullscreen())leaveFullscreen();}catch(_){}
+        try{releasePiP();}catch(_){}
+        try{player?.stop?.();}catch(_){}
+        hostDocument?.removeEventListener('fullscreenchange',syncNativeFullscreen);
+        hostDocument?.removeEventListener('webkitfullscreenchange',syncNativeFullscreen);
+        clearTimeout(resizeTimer);
+        clearTimeout(fullscreenFeedbackTimer);
+        clearTimeout(fullscreenLayoutTimer);
+        cancelEmbeddedRecovery();
+        clearEntryTransitionBridge('pagehide');
+        clearHostTransitionBridge('pagehide');
+        clearCanvasFitOverride();
+      });
+      window.parent.postMessage({type:'LUXE_EZVIZ_FRAME',state:'READY'},iframeOrigin);
+    })();
+  </script>
+</body>
+</html>

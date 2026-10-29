@@ -578,7 +578,9 @@
         clearInterval(press.heartbeat);
         press.button.classList.remove('pressed');
         if(press.mode==='hold'&&stop){
-          // If UP occurs before cloud START resolves, STOP must follow START.
+          // Stop immediately, and again after a delayed START resolves.
+          // The second STOP protects against STOP-before-START races.
+          void ptzStop();
           Promise.resolve(press.startPromise).catch(()=>{}).finally(()=>void ptzStop());
         }
       };
@@ -637,9 +639,11 @@
             }).catch(()=>{if(ptzPress===press){resetPtzPress({stop:false});closePtz();}});
           },230);
         });
-        const release=event=>{
+        const release=(event,cancelled=false)=>{
           if(!ptzPress||ptzPress.button!==button||ptzPress.id!==event.pointerId)return;
-          const press=ptzPress, short=press.mode==='pending';
+          // Cancellation suppresses a short tap but must not erase the
+          // obligation to stop an already-started hold.
+          const press=ptzPress, short=!cancelled&&press.mode==='pending';
           resetPtzPress({stop:true});
           if(short&&ptzOpen&&!stopping){
             ptzBusy=true;
@@ -647,10 +651,7 @@
           }
         };
         button.addEventListener('pointerup',release);
-        button.addEventListener('pointercancel',event=>{
-          if(ptzPress?.id===event.pointerId)ptzPress.mode='cancelled';
-          release(event);
-        });
+        button.addEventListener('pointercancel',event=>release(event,true));
         button.addEventListener('pointermove',event=>{
           if(ptzPress?.button!==button||ptzPress.id!==event.pointerId)return;
           const r=button.getBoundingClientRect();

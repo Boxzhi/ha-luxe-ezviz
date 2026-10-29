@@ -199,7 +199,8 @@
     #ptz-dismiss{position:absolute;inset:0;z-index:10;background:transparent;
       touch-action:manipulation;cursor:default}
     #ptz-panel{position:absolute;top:50%;right:8px;z-index:11;
-      width:156px;max-width:calc(100% - 16px);box-sizing:border-box;
+      width:156px;max-width:calc(100% - 16px);max-height:calc(100% - 16px);
+      box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;
       transform:translateY(-50%);padding:9px;border-radius:14px;
       background:rgba(10,18,30,.62);border:1px solid rgba(220,234,252,.15);
       backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
@@ -207,7 +208,12 @@
       user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
     #ptz-panel[hidden],#ptz-dismiss[hidden]{display:none!important}
     #ptz-panel-title{font:500 12px/1.3 -apple-system,BlinkMacSystemFont,sans-serif;
-      padding:1px 1px 8px;text-align:center;color:rgba(240,245,252,.88)}
+      padding:1px 1px 8px;text-align:center;color:rgba(240,245,252,.88);
+      touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    #ptz-panel-title.dragging{cursor:grabbing}
+    #ptz-panel-title svg{display:inline-block;vertical-align:-2px;width:14px;height:14px;
+      margin-right:5px;fill:none;stroke:currentColor;stroke-width:1.8;
+      stroke-linecap:round;pointer-events:none}
     #ptz-grid{display:grid;grid-template-columns:repeat(3,44px);
       grid-template-rows:repeat(3,44px);gap:2px;justify-content:center}
     .ptz-key{appearance:none;border:0;border-radius:50%;padding:0;
@@ -271,11 +277,13 @@
   </div>
   <!-- PTZ trigger appears only after server-confirmed per-device PTZ capability. -->
   <button class="control" id="ptz-trigger" type="button" aria-label="打开云台控制" title="云台控制" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20m-7-7-3-3-3 3m6 14-3 3-3-3M5 9l-3 3 3 3m14-6 3 3-3 3"/></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.2"/><circle cx="12" cy="12" r="2.1"/><path d="m9.2 7.7 2.8-2.8 2.8 2.8M9.2 16.3l2.8 2.8 2.8-2.8M7.7 9.2 4.9 12l2.8 2.8M16.3 9.2l2.8 2.8-2.8 2.8"/></svg>
   </button>
   <div id="ptz-dismiss" aria-label="点击画面关闭云台控制" hidden></div>
   <div id="ptz-panel" role="group" aria-label="云台方向控制" hidden>
-    <div id="ptz-panel-title">云台控制</div>
+    <div id="ptz-panel-title" aria-label="拖动云台控制面板" title="拖动以移动云台面板">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9h8M8 15h8"/></svg>云台控制
+    </div>
     <div id="ptz-grid">
       <span></span>
       <button class="ptz-key" data-ptz="up" aria-label="向上转动"><svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg></button>
@@ -431,8 +439,11 @@
       const ptzTrigger=document.getElementById('ptz-trigger');
       const ptzDismiss=document.getElementById('ptz-dismiss');
       const ptzPanel=document.getElementById('ptz-panel');
+      const ptzTitle=document.getElementById('ptz-panel-title');
       const ptzKeys=Array.from(document.querySelectorAll('[data-ptz]'));
       let ptzSupported=false, ptzDirections=[], ptzOpen=false, ptzPress=null, ptzBusy=false;
+      // Normalized position survives close/reopen but resets on player teardown.
+      let ptzPosition=null, ptzDrag=null;
       let ptzRpcCounter=0;
       const ptzPending=new Map();
 
@@ -498,6 +509,68 @@
         });
       };
       const ptzStop=()=>ptzRpc('stop').catch(()=>{});
+      const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
+      // Prefer the actual video rectangle (also on letterboxed fullscreen).
+      // Intersect with the iframe viewport so no part can be dragged off-screen.
+      const ptzBounds=()=>{
+        const videoRect=vid.getBoundingClientRect();
+        const width=window.innerWidth, height=window.innerHeight;
+        const left=Math.max(0,videoRect.left), top=Math.max(0,videoRect.top);
+        const right=Math.min(width,videoRect.right), bottom=Math.min(height,videoRect.bottom);
+        return right>left&&bottom>top?{left,top,right,bottom}:{left:0,top:0,right:width,bottom:height};
+      };
+      const ptzLimits=()=>{
+        const b=ptzBounds(),margin=8;
+        // Very small embedded cards can scroll the controls instead of
+        // placing part of the drag handle outside their visible area.
+        ptzPanel.style.maxWidth=`${Math.max(1,b.right-b.left-2*margin)}px`;
+        ptzPanel.style.maxHeight=`${Math.max(1,b.bottom-b.top-2*margin)}px`;
+        const minX=b.left+margin,minY=b.top+margin;
+        return {minX,minY,
+          maxX:Math.max(minX,b.right-margin-ptzPanel.offsetWidth),
+          maxY:Math.max(minY,b.bottom-margin-ptzPanel.offsetHeight)};
+      };
+      const placePtzPanel=()=>{
+        if(!ptzOpen||ptzPanel.hidden)return;
+        const {minX,minY,maxX,maxY}=ptzLimits();
+        const x=clamp(ptzPosition?.x??1,0,1),y=clamp(ptzPosition?.y??.5,0,1);
+        ptzPanel.style.right='auto';ptzPanel.style.transform='none';
+        ptzPanel.style.left=`${minX+(maxX-minX)*x}px`;
+        ptzPanel.style.top=`${minY+(maxY-minY)*y}px`;
+      };
+      const finishPtzDrag=(event)=>{
+        if(!ptzDrag||(event&&event.pointerId!==ptzDrag.id))return;
+        const id=ptzDrag.id;ptzDrag=null;
+        ptzTitle.classList.remove('dragging');
+        try{if(ptzTitle.hasPointerCapture?.(id))ptzTitle.releasePointerCapture(id);}catch(_){}
+      };
+      // Dragging is confined to the title. PTZ direction buttons retain their
+      // existing press/hold/release event handlers and are never drag handles.
+      ptzTitle.addEventListener('pointerdown',event=>{
+        if(!ptzOpen||ptzDrag||ptzPress||!event.isPrimary||event.button!==0)return;
+        event.preventDefault();event.stopPropagation();
+        const rect=ptzPanel.getBoundingClientRect();
+        ptzDrag={id:event.pointerId,startX:event.clientX,startY:event.clientY,
+          left:rect.left,top:rect.top};
+        ptzTitle.classList.add('dragging');
+        try{ptzTitle.setPointerCapture?.(event.pointerId);}catch(_){}
+      });
+      ptzTitle.addEventListener('pointermove',event=>{
+        if(!ptzDrag||event.pointerId!==ptzDrag.id||!ptzOpen)return;
+        event.preventDefault();event.stopPropagation();
+        const {minX,minY,maxX,maxY}=ptzLimits();
+        const left=clamp(ptzDrag.left+event.clientX-ptzDrag.startX,minX,maxX);
+        const top=clamp(ptzDrag.top+event.clientY-ptzDrag.startY,minY,maxY);
+        ptzPanel.style.left=`${left}px`;ptzPanel.style.top=`${top}px`;
+        ptzPosition={x:maxX>minX?(left-minX)/(maxX-minX):1,
+          y:maxY>minY?(top-minY)/(maxY-minY):.5};
+      });
+      ptzTitle.addEventListener('pointerup',finishPtzDrag);
+      ptzTitle.addEventListener('pointercancel',finishPtzDrag);
+      ptzTitle.addEventListener('lostpointercapture',finishPtzDrag);
+      window.addEventListener('resize',()=>{if(ptzOpen){finishPtzDrag();placePtzPanel();}});
+      document.addEventListener('fullscreenchange',()=>{if(ptzOpen)placePtzPanel();});
+      document.addEventListener('webkitfullscreenchange',()=>{if(ptzOpen)placePtzPanel();});
       const resetPtzPress=({stop=true}={})=>{
         const press=ptzPress;ptzPress=null;
         if(!press)return;
@@ -510,6 +583,8 @@
         }
       };
       const closePtz=(teardown=false)=>{
+        finishPtzDrag();
+        if(teardown)ptzPosition=null;
         if(!ptzOpen&&!ptzPress)return;
         resetPtzPress();
         // A STOP also protects quick close during pending tap movement.
@@ -525,6 +600,7 @@
         ptzOpen=true;
         ptzPanel.hidden=false;ptzDismiss.hidden=false;
         document.body.classList.add('ptz-open');
+        placePtzPanel();
       };
       const updatePtzCapability=()=>{
         ptzTrigger.hidden=!ptzSupported;
@@ -2217,6 +2293,7 @@
       async function start(msg) {
         if (starting || player || stopping) return;
         ptzSupported=false;ptzDirections=[];ptzBusy=false;ptzOpen=false;updatePtzCapability();
+        finishPtzDrag();ptzPosition=null;
         ptzPanel.hidden=true;ptzDismiss.hidden=true;document.body.classList.remove('ptz-open');
         micGate?.setTalkIntent?.(false,'player-start');
         initialMuted=msg.muted!==false;

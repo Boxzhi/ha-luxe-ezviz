@@ -1365,6 +1365,9 @@
         const deadline=Date.now()+1800;
         while(initialSoundSyncBusy&&Date.now()<deadline)
           await new Promise(resolve=>setTimeout(resolve,20));
+        // Do not acknowledge a mute while a previous openSound() is still
+        // unresolved; its late completion could re-enable audio after handoff.
+        if(initialSoundSyncBusy)return false;
         if(instance!==player||stopping)return true;
         if(!firstFrame){
           soundOn=false;updateSoundUI();signal('AUDIO_STATE',{soundOn:false});

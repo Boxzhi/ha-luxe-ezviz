@@ -568,7 +568,7 @@
       this._stopReset=reset;
       const frame=this._iframe;
       const sessionId=this._id;
-      if(frame){
+      if(frame&&this._frameStarted){
         this._setState('stopping');
         try{frame.contentWindow?.postMessage({type:'LUXE_EZVIZ_PARENT',id:sessionId,command:'STOP'},location.origin);}catch(_){}
         clearTimeout(this._stopTimer);

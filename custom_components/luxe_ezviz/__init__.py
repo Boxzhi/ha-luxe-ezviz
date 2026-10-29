@@ -163,7 +163,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             await runtime.ptz_controller.close()
         except Exception:
-            _LOGGER.warning("Could not confirm PTZ stopped during entry unload")
+            _LOGGER.error("PTZ STOP not confirmed; refusing entry unload to retain retry protection")
+            return False
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return True
 

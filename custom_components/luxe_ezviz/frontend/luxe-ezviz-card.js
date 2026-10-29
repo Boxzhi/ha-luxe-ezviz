@@ -2,7 +2,53 @@
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.0';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.0-audio-exclusive';
+
+  // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
+  // cards in this HA page. Muting is invoked directly inside each same-origin
+  // player iframe so the newly selected sound can still start in the click task.
+  const AUDIO_COORDINATOR = window.__luxeEzvizAudioCoordinator ||
+    (window.__luxeEzvizAudioCoordinator = {
+      cards:new Set(), owner:null, talkOwner:null,
+      register(card){this.cards.add(card);},
+      unregister(card){this.cards.delete(card);this.release(card);},
+      cardForFrame(frame){return [...this.cards].find(card=>card._iframe===frame)||null;},
+      releaseTalk(card){if(this.talkOwner===card)this.talkOwner=null;},
+      release(card){
+        if(this.owner===card)this.owner=null;
+        if(this.talkOwner===card)this.talkOwner=null;
+      },
+      claim(card,mode='sound'){
+        if(!this.cards.has(card))this.cards.add(card);
+        if(this.talkOwner && this.talkOwner!==card)
+          return {allowed:false,reason:'talk_in_progress',completion:Promise.resolve(false)};
+        if(this.talkOwner===card && mode!=='talk')
+          return {allowed:false,reason:'talk_in_progress',completion:Promise.resolve(false)};
+        card._audioForceMuted=false;
+        this.owner=card;
+        if(mode==='talk')this.talkOwner=card;
+        const tasks=[...this.cards].filter(other=>other!==card).map(other=>{
+          try{return Promise.resolve(other._muteForAudioExclusivity());}
+          catch(_){return Promise.resolve(false);}
+        });
+        const completion=Promise.all(tasks).then(results=>{
+          if(this.owner!==card || (mode==='talk'&&this.talkOwner!==card))return false;
+          if(results.some(ok=>ok!==true)){
+            if(mode==='talk'&&this.talkOwner===card)this.talkOwner=null;
+            return false;
+          }
+          return true;
+        }).catch(()=>{
+          if(mode==='talk'&&this.talkOwner===card)this.talkOwner=null;
+          return false;
+        });
+        return {allowed:true,reason:null,completion};
+      },
+      claimFrame(frame,mode='sound'){
+        const card=this.cardForFrame(frame);
+        return card?this.claim(card,mode):{allowed:true,reason:null,completion:Promise.resolve(true)};
+      }
+    });
 
   const ICON_PLAY = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12.1 6.7 C10.2 5.6 9.3 6.9 9.3 9.2 L9.3 22.8 C9.3 25.1 10.2 26.4 12.1 25.3 L25.1 18 C27.7 16.5 27.7 15.5 25.1 14 Z"/></svg>';
   const HTML = `
@@ -152,6 +198,7 @@
         pipPlaceholder:this.shadowRoot.querySelector('.pip-placeholder'),
       };
       this._state='idle';this._iframe=null;this._session=null;this._id=null;this._stopReset=true;this._pipActive=false;this._isOffscreen=false;this._nativeFullscreenActive=false;
+      this._frameStarted=false;this._audioForceMuted=false;this._audioSoundOn=false;
       this._timer=null;this._stopTimer=null;this._intersectionTimer=null;this._intersection=null;
       this._disconnectTimer=null;this._disconnectAt=0;this._disconnectGraceMs=1500;
       this._needsIdleAfterNavigation=false;
@@ -219,6 +266,7 @@
     set hass(value){this._hass=value;if(this.isConnected&&this._config)this._loadMetadata();}
     getCardSize(){return 4;}
     connectedCallback(){
+      AUDIO_COORDINATOR.register(this);
       (window.__luxeEzvizNavigationInstances ||= new Set()).add(this);
       window.addEventListener('location-changed',this._onNavigationRoute);
       window.addEventListener('popstate',this._onNavigationRoute);
@@ -280,7 +328,8 @@
       clearTimeout(this._intersectionTimer);this._intersectionTimer=null;
       clearTimeout(this._disconnectTimer);this._disconnectTimer=null;
       if(!this._iframe && !this._session && this._state!=='loading' && this._state!=='live'){
-        window.__luxeEzvizNavigationInstances?.delete(this);return;
+        window.__luxeEzvizNavigationInstances?.delete(this);
+        AUDIO_COORDINATOR.unregister(this);return;
       }
       this._disconnectAt=Date.now();
       this._disconnectTimer=setTimeout(()=>{
@@ -335,6 +384,7 @@
       if (this._iframe) {this._els.msg.textContent='正在回收上一连接，请稍后重试';return;}
       if (!this._hass || !this._hass.callApi){this._setState('error','Home Assistant 尚未准备好');return;}
       this._setState('loading');
+      this._frameStarted=false;this._audioForceMuted=false;this._audioSoundOn=false;
       const id=String(Date.now())+'-'+Math.random().toString(36).slice(2);
       this._id=id;
       try {
@@ -375,11 +425,36 @@
       if(data.state==='READY'){
         if(!this._session||this._state!=='loading')return;
         const session=this._session;this._session=null;
-        this._iframe.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id:this._id,
-          command:'START',session,muted:this._config?.muted!==false},location.origin);
+        const frame=this._iframe,id=this._id;
+        const startPlayer=async()=>{
+          let soundAllowed=true;
+          if(this._config?.muted===false){
+            const claim=AUDIO_COORDINATOR.claim(this,'sound');
+            soundAllowed=claim.allowed&&await claim.completion;
+          }
+          if(this._id!==id||this._iframe!==frame||this._state!=='loading')return;
+          const muted=this._config?.muted!==false||!soundAllowed||
+            this._audioForceMuted||AUDIO_COORDINATOR.owner!==this;
+          this._frameStarted=true;
+          frame.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id,
+            command:'START',session,muted},location.origin);
+        };
+        void startPlayer().catch(()=>{
+          if(this._id===id)this._fail('audio_coordination_failed');
+        });
         return;
       }
       if(data.id!==this._id)return;
+      if(data.state==='AUDIO_STATE'){
+        this._audioSoundOn=Boolean(data.soundOn);
+        if(this._audioSoundOn&&AUDIO_COORDINATOR.owner!==this)
+          void this._muteForAudioExclusivity();
+        return;
+      }
+      if(data.state==='TALK_STATE'){
+        if(data.talkActive!==true)AUDIO_COORDINATOR.releaseTalk(this);
+        return;
+      }
       if(data.state==='PTZ_RPC'){
         // Only messages from our live iframe with a matching playback id.
         void this._handlePtzRpc(data);
@@ -432,6 +507,21 @@
       try{frame.contentWindow?.postMessage({type:'LUXE_EZVIZ_PARENT',id,
         command:'PTZ_RESULT',requestId,result},location.origin);}catch(_){}
     }
+    async _muteForAudioExclusivity(){
+      this._audioForceMuted=true;
+      if(!this._iframe||!this._frameStarted)return true;
+      const frame=this._iframe;
+      try{
+        const control=frame.contentWindow?.__luxeEzvizAudioControl;
+        if(typeof control?.mute!=='function')return false;
+        const result=await Promise.race([
+          Promise.resolve(control.mute()),
+          new Promise(resolve=>setTimeout(()=>resolve(false),2200))
+        ]);
+        if(result===true)this._audioSoundOn=false;
+        return result===true;
+      }catch(_){return false;}
+    }
     _ptzEmergencyStop(){
       const serial=this._config?.device_serial;
       if(!serial||!this._hass?.callApi)return;
@@ -482,11 +572,16 @@
     _finishStop(sessionId=this._id,reset=this._stopReset){
       if(sessionId!==this._id)return;
       clearTimeout(this._stopTimer);this._stopTimer=null;
+      this._frameStarted=false;this._audioSoundOn=false;this._audioForceMuted=false;
+      AUDIO_COORDINATOR.release(this);
       clearTimeout(this._timer);this._timer=null;
       this._iframe?.remove();this._iframe=null;this._session=null;this._id=null;
       this._setPipVisual(false,'stop-finished');this._nativeFullscreenActive=false;
       this._stopReset=true;
-      if(!this.isConnected)window.__luxeEzvizNavigationInstances?.delete(this);
+      if(!this.isConnected){
+        window.__luxeEzvizNavigationInstances?.delete(this);
+        AUDIO_COORDINATOR.unregister(this);
+      }
       if(reset){
         this._needsIdleAfterNavigation=false;
         // STOP may finish after the user has already returned to this Panel.

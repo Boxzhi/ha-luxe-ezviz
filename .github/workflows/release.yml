@@ -58,7 +58,7 @@ jobs:
           from pathlib import Path
           source = Path("custom_components/luxe_ezviz/frontend/player.html").read_text()
           scripts = [
-              item for item in re.findall(r"<script\\b[^>]*>([\\s\\S]*?)</script>", source, re.I)
+              item for item in re.findall(r"<script\b[^>]*>([\s\S]*?)</script>", source, re.I)
               if item.strip()
           ]
           if not scripts:

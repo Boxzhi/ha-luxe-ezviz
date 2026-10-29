@@ -1,8 +1,8 @@
-/* Luxe EZVIZ camera card · v1.1.0 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
+/* Luxe EZVIZ camera card · v1.1.1 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.0-audio-exclusive';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.1-audio-exclusive';
 
   // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
   // cards in this HA page. Muting is invoked directly inside each same-origin

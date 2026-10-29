@@ -428,9 +428,13 @@
         const frame=this._iframe,id=this._id;
         const startPlayer=async()=>{
           let soundAllowed=true;
-          if(this._config?.muted===false){
+          if(this._config?.muted===false&&!this._audioForceMuted){
             const claim=AUDIO_COORDINATOR.claim(this,'sound');
             soundAllowed=claim.allowed&&await claim.completion;
+          }else if(this._config?.muted===false){
+            // Another camera explicitly claimed audio while this player was
+            // still loading; do not let a late READY event steal ownership.
+            soundAllowed=false;
           }
           if(this._id!==id||this._iframe!==frame||this._state!=='loading')return;
           const muted=this._config?.muted!==false||!soundAllowed||
@@ -514,10 +518,12 @@
       try{
         const control=frame.contentWindow?.__luxeEzvizAudioControl;
         if(typeof control?.mute!=='function')return false;
+        let timeout;
         const result=await Promise.race([
           Promise.resolve(control.mute()),
-          new Promise(resolve=>setTimeout(()=>resolve(false),2200))
+          new Promise(resolve=>{timeout=setTimeout(()=>resolve(false),2200);})
         ]);
+        clearTimeout(timeout);
         if(result===true)this._audioSoundOn=false;
         return result===true;
       }catch(_){return false;}

@@ -1,20 +1,54 @@
 {
-  "version": "9.0.5",
-  "source": "https://registry.npmjs.org/ezuikit-js/-/ezuikit-js-9.0.5.tgz",
+  "version": "9.0.24",
+  "source": "https://registry.npmjs.org/ezuikit-js/-/ezuikit-js-9.0.24.tgz",
   "files": {
-    "ezuikit.js": "162bc47f1bfe042d5e8db16b79619f77e92354fd5d0c5029234a21833799aee4",
-    "ezuikit_static/PlayCtrlWasm/playCtrl1/HasSIMD/Decoder.js": "1227f68e8caeec77734a7966f4f887667dc4632253b72782a386d0ea84bc901a",
-    "ezuikit_static/PlayCtrlWasm/playCtrl1/NoSIMD/Decoder.js": "028b8fbd2f8000f575463e4e158dfe8f21f087b0f40b5be3e40eec4e3619e97a",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.js": "c4394d950ffeba808c5021b592a97797bdc45bd7634698e0bb01365683d9e250",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.wasm": "5a08695556173da5f9c9d21ab933eba2a17f87e53428f7481c7c334fa6e4c967",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.worker.js": "26650f36b5e1d7078e9b16d1b1a034ef1b021fdd4dc6e430383559c6e4fb5d82",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.js": "2c6d0c08fee9f19d68052839568dd5ef1d930081bfaa099885addf8b3721b531",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.wasm": "b347fc92d4b54e66745632c99c17a6bef8b938dd61391d5a83cee30a15f36427",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.worker.js": "26650f36b5e1d7078e9b16d1b1a034ef1b021fdd4dc6e430383559c6e4fb5d82",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.js": "4dda6ca27d97d49b3656e329747806b8f217ca14886ec3310df367bedc90cd55",
-    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.wasm": "7bf63ec321a0780611faab0dc36684fe5ab2c7709f64d7ac17844ede2fadb900",
-    "ezuikit_static/talk/adapeter.js": "fb4a2a05eb8cc7ed8d4bbb3ca4a2461f922380d86ab07f5c85ec25ca1ad622c6",
-    "ezuikit_static/talk/janus.js": "8144b7ac9d1b1da7bc4eddb38db1838dc981c565e83ee0f2c75b774dff4bce58",
-    "ezuikit_static/talk/tts-v4.js": "1ab56cb7997dff37053e504bfc870e3bcf49e0793924d17175dd555516cb8b12"
+    "ezuikit.js": {
+      "git_blob_sha": "bd3face0f12a0a7c68d22637ed862120f0341981",
+      "size": 4082625
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl1/HasSIMD/Decoder.js": {
+      "git_blob_sha": "cd7f988d8dc97d2649e0882d9e2aabbddf4b5bd9",
+      "size": 2445644
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl1/NoSIMD/Decoder.js": {
+      "git_blob_sha": "f3b2f2f1988b666499c0d16c2032176cfdc52957",
+      "size": 1980030
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.js": {
+      "git_blob_sha": "bd3faa2f752e2023a93d195d0015a205827024c1",
+      "size": 199047
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.wasm": {
+      "git_blob_sha": "0ed2becd8bc3f6abf1d17ad32c09f5fb6fec32aa",
+      "size": 3625663
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/HasSIMD/Decoder.worker.js": {
+      "git_blob_sha": "260e97038475803130318f0ab7099257ff7a8b64",
+      "size": 2243
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.js": {
+      "git_blob_sha": "da61f24691044f9ed628254fd6736c8de4f8b5fe",
+      "size": 199047
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.wasm": {
+      "git_blob_sha": "766f5049bc600b758a4b966daed8fb1fb5d14150",
+      "size": 3247326
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/hasWorker/NoSIMD/Decoder.worker.js": {
+      "git_blob_sha": "260e97038475803130318f0ab7099257ff7a8b64",
+      "size": 2243
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.js": {
+      "git_blob_sha": "e7632a1e6d1565798aa14cc8881168339528ed66",
+      "size": 123459
+    },
+    "ezuikit_static/PlayCtrlWasm/playCtrl3/noWorker/Decoder.wasm": {
+      "git_blob_sha": "e61a950398c0b342b343fe02c3d8dffd2632be17",
+      "size": 3113509
+    },
+    "ezuikit_static/libSystemTransformWASM.js": {
+      "git_blob_sha": "815707f4f60c4276e444c5f655b8e90d65f84386",
+      "size": 1000152
+    }
   }
 }

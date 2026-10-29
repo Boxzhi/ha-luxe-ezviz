@@ -903,7 +903,7 @@
           return false;
         }
         try{
-          // EZUIKit 9.0.5 internally throttles videoInfo-driven canvas resize to 500ms.
+          // EZUIKit 9.0.24 internally throttles videoInfo-driven canvas resize to 500ms.
           // A stale videoInfo event can therefore run last after a new stream is already active.
           // Reapply the most recent STREAM_INFO dimensions through the same SDK-owned window API.
           playerWindow.resize(snapshot.width,snapshot.height);
@@ -2445,7 +2445,7 @@
           const capacityPlayer = player;
           bindQualityEvents(player,SDK);
           bindTalkEvents(player,SDK);
-          // EZUIKit 9.0.5 emits getDeviceCapacity with data.support_talk.
+          // EZUIKit 9.0.24 emits getDeviceCapacity with data.support_talk.
           // Only the documented REST capability value "1" enables the button;
           // value "3", missing data, or request failure all leave it hidden.
           if (typeof player.on === 'function' && SDK.EVENTS?.getDeviceCapacity) {

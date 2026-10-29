@@ -1,0 +1,130 @@
+name: Release Luxe EZVIZ
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate production version and SDK pins
+        run: |
+          set -euo pipefail
+          python -m compileall -q custom_components/luxe_ezviz
+          python -m json.tool hacs.json > /dev/null
+          python -m json.tool custom_components/luxe_ezviz/manifest.json > /dev/null
+          python -m json.tool custom_components/luxe_ezviz/sdk_hashes.json > /dev/null
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("custom_components/luxe_ezviz/manifest.json").read_text())
+          sdk = json.loads(Path("custom_components/luxe_ezviz/sdk_hashes.json").read_text())
+          assert manifest["domain"] == "luxe_ezviz"
+          assert manifest["version"] == "1.1.2"
+          assert sdk["version"] == "9.0.24"
+          assert len(sdk["files"]) == 12
+          assert "ezuikit_static/libSystemTransformWASM.js" in sdk["files"]
+          assert not any(name.startswith("ezuikit_static/talk/") for name in sdk["files"])
+          assert all(
+              isinstance(pin, dict)
+              and isinstance(pin.get("git_blob_sha"), str)
+              and isinstance(pin.get("size"), int)
+              for pin in sdk["files"].values()
+          )
+          assert "luxe_ezviz_sdk" in Path("custom_components/luxe_ezviz/sdk.py").read_text()
+          print("Luxe EZVIZ 1.1.2 / EZUIKit 9.0.24 manifest is consistent.")
+          PY
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify frontend JavaScript
+        run: |
+          set -euo pipefail
+          node --check custom_components/luxe_ezviz/frontend/luxe-ezviz-card.js
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path("custom_components/luxe_ezviz/frontend/player.html").read_text()
+          scripts = [
+              item for item in re.findall(r"<script\b[^>]*>([\s\S]*?)</script>", source, re.I)
+              if item.strip()
+          ]
+          if not scripts:
+              raise SystemExit("No inline player scripts found")
+          for index, script in enumerate(scripts):
+              Path(f"/tmp/luxe-player-{index}.js").write_text(script)
+          print(f"Extracted {len(scripts)} inline script(s)")
+          PY
+          for script in /tmp/luxe-player-*.js; do node --check "$script"; done
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  release:
+    needs: [validate, hacs, hassfest]
+    if: startsWith(github.event.head_commit.message, 'release:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build HACS-compatible integration ZIP
+        run: |
+          set -euo pipefail
+          test "$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/manifest.json"))["version"])')" = "1.1.2"
+          test "$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/sdk_hashes.json"))["version"])')" = "9.0.24"
+          mkdir -p dist/luxe_ezviz
+          cp -a custom_components/luxe_ezviz/. dist/luxe_ezviz/
+          (cd dist && zip -qr "../luxe-ezviz-v1.1.2.zip" luxe_ezviz)
+          sha256sum "luxe-ezviz-v1.1.2.zip" > "luxe-ezviz-v1.1.2.zip.sha256"
+      - name: Publish official GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.2
+          target_commitish: ${{ github.sha }}
+          name: Luxe EZVIZ v1.1.2 — EZUIKit 9.0.24
+          prerelease: false
+          draft: false
+          make_latest: true
+          generate_release_notes: false
+          body: |
+            ## Luxe EZVIZ v1.1.2
+
+            Upgrades the production integration from EZUIKit 9.0.5 to the hardware-tested EZUIKit 9.0.24.
+
+            - Keeps the existing `luxe_ezviz` integration domain, config entries, API paths, and `custom:luxe-ezviz-card` card type.
+            - Retains the previously released multi-camera audio exclusivity, talk coordination, PTZ safety, and playback lifecycle behavior.
+            - Uses a version-scoped cache at `/config/luxe_ezviz_sdk/9.0.24`; the old 9.0.5 cache is not overwritten.
+            - Downloads SDK files from the official npm registry and verifies each required file against the pinned official Git blob ID and exact size.
+            - Does not redistribute third-party EZUIKit vendor files.
+
+            ### Upgrade via HACS
+            1. Open HACS → Integrations → Luxe EZVIZ.
+            2. Select v1.1.2 and download/update.
+            3. Restart Home Assistant.
+            4. Check the Home Assistant logs for SDK provisioning or integrity errors.
+
+            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, update the cache-busting resource URL to `/luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.2-ezuikit-9.0.24`.
+          files: |
+            luxe-ezviz-v1.1.2.zip
+            luxe-ezviz-v1.1.2.zip.sha256

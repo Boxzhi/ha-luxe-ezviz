@@ -2,20 +2,20 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.1.1` — multi-camera audio exclusivity and talk coordination, building on the PTZ controls and safety fixes in v1.1.0. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.1.2` — upgrades the verified EZUIKit runtime from 9.0.5 to 9.0.24 while preserving the production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle fixes. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
 1. This repository must first be created and published on GitHub.
 2. In HACS, add `https://github.com/Boxzhi/ha-luxe-ezviz` as a custom **Integration** repository.
-3. Download it and restart Home Assistant. The integration will download the unmodified **ezuikit-js 9.0.5** package directly from the official npm registry on first startup, validate all expected SDK files by SHA256, and store them outside the HACS-managed code folder.
+3. Download it and restart Home Assistant. The integration will download the unmodified **ezuikit-js 9.0.24** package directly from the official npm registry on first startup, validate all required SDK files against official source Git blob fingerprints and exact file sizes, and store them outside the HACS-managed code folder.
 4. The packaged card module is registered automatically when Lovelace resource mode is `storage`. If using YAML resources, manually add:
 
 ```yaml
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.1-audio-exclusive
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.2-ezuikit-9.0.24
       type: module
 ```
 

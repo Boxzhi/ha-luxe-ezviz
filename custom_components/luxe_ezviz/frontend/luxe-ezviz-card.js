@@ -1,8 +1,8 @@
-/* Luxe EZVIZ camera card · v1.1.1 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
+/* Luxe EZVIZ camera card · v1.1.2 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.1-audio-exclusive';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.2-ezuikit-9.0.24';
 
   // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
   // cards in this HA page. Muting is invoked directly inside each same-origin
@@ -143,7 +143,7 @@
       </div>
     </div>`;
   const reasonText = (reason) => ({
-    sdk_not_installed: '未安装 EZUIKit 9.0.5 本地 SDK',
+    sdk_not_installed: '未安装 EZUIKit 9.0.24 本地 SDK',
     invalid_session: '播放授权参数无效',
     invalid_auth: '萤石授权已失效，请检查集成',
     cloud_unavailable: '萤石云连接失败，请稍后重试',

@@ -494,6 +494,8 @@
         RECORD_DOWNLOAD_COORDINATOR.enqueue({
           blob,filename,frame:this._iframe?.contentWindow||null,id:this._id
         });
+        try{this._iframe.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id:this._id,
+          command:'RECORD_FILE_ACCEPTED',success:true,filename},location.origin);}catch(_){}
         return;
       }
       if(data.state==='STOP_BLOCKED'){

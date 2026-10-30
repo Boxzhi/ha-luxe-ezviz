@@ -33,6 +33,8 @@ class PackageChecks(unittest.TestCase):
   player=(COMP/'frontend/player.html').read_text()
   self.assertIn('RECORD_DOWNLOAD_COORDINATOR',card)
   self.assertIn("state==='RECORD_FILE'",card)
+  self.assertIn("RECORD_FILE_ACCEPTED",card)
+  self.assertIn("waitForRecordFileAccepted",player)
   self.assertIn("recordName:this._config",card)
   self.assertIn('id="record"',player)
   self.assertIn('id="record-status"',player)

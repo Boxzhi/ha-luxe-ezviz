@@ -876,6 +876,8 @@
           return true;
         })().catch(error=>{
           clearInterval(recordTimer);recordTimer=null;
+          clearTimeout(recordFileAcceptedTimeout);recordFileAcceptedTimeout=null;recordFileAcceptedResolver=null;
+          clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;recordDownloadResolver=null;
           setRecordState('error');
           showToast('录像保存失败，请点击红色按钮重试');
           return false;

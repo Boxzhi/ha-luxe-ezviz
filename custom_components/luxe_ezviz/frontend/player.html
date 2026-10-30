@@ -737,7 +737,7 @@
         return String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0');
       };
       const safeRecordPart = (value,fallback) => {
-        const cleaned=String(value||fallback).replace(/[\\/:*?"<>|]/g,'_').replace(/\\s+/g,'_')
+        const cleaned=String(value||fallback).replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,'_')
           .replace(/[. ]+$/g,'').slice(0,48);
         return cleaned||fallback;
       };
@@ -829,7 +829,7 @@
             }
             if(!(blob instanceof Blob)||!blob.size)throw new Error('record_file_empty');
             filename=blob.name||((recordFileBase||makeRecordFileBase())+'.mp4');
-            if(!/\\.mp4$/i.test(filename))filename+='.mp4';
+            if(!/\.mp4$/i.test(filename))filename+='.mp4';
             recordFileBlob=blob;recordFileName=filename;
           }
           setRecordState('saving');

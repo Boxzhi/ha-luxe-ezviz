@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.1.2` — upgrades the verified EZUIKit runtime from 9.0.5 to 9.0.24 while preserving the production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle fixes. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.2.0-beta.1` — HACS beta test of the player UI refresh and local recording on EZUIKit 9.0.24. The production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.2-ezuikit-9.0.24
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.1-ezuikit-9.0.24
       type: module
 ```
 
@@ -29,6 +29,22 @@ autoplay: false
 muted: true
 debug: false
 ```
+
+## v1.2.0 beta test notes
+
+This is a pre-release for testing. It updates the existing production integration in place; it is not a second integration domain. Back up the current HACS-managed integration folder before installing the beta.
+
+- PTZ trigger and panel move to the left side; the trigger uses a centered crosshair icon.
+- Screenshot and recording controls are stacked on the right, with screenshot above recording.
+- Recording shows REC and an elapsed timer at the top-right. During recording, the current player hides its other controls.
+- Each camera has an independent recording session, 25-minute warning, and 30-minute automatic stop.
+- The SDK is configured with downloadRecord disabled and original-stream recording mode so completed Blobs can enter the page-level sequential download queue.
+- Recording audio is intended to preserve the camera's source audio independently of live playback mute. Verify this on real cameras; the SDK's browser/player behavior can vary by stream and device.
+- Multiple cameras may record at the same time. Completed file downloads are triggered one at a time with a short gap; browser APIs do not expose reliable download-completed notifications.
+- Leaving the dashboard asks active players to stop and hand off recordings before teardown. Force-closing the browser or HA app can still interrupt an unfinished save.
+- The recording output container/codec is determined by EZUIKit 9.0.24; verify playback using the EZVIZ player before relying on the files.
+
+Because this is a beta, test with one camera first, then two cameras simultaneously. Do not treat the first beta as a validated unattended recording solution.
 
 ## SDK licensing
 

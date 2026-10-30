@@ -19,6 +19,7 @@ class PackageChecks(unittest.TestCase):
   self.assertEqual(keys[:2],['domain','name'])
   self.assertEqual(keys[2:],sorted(keys[2:]),'Hassfest requires alphabetically sorted manifest keys')
  def test_frontend_paths(self):
+  m=json.loads((COMP/'manifest.json').read_text())
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
   asset_version=m['version']+'-ezuikit-9.0.24'

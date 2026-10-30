@@ -64,7 +64,7 @@ If the custom card does not load, visit `/luxe_ezviz/static/luxe-ezviz-card.js`;
 
 ## PTZ controls (v1.1.0)
 
-The player checks the selected camera's cloud capability set. Supported cameras show a four-direction PTZ button directly above the screenshot button after live playback starts. Unsupported/unknown devices show no PTZ entry. Opening the translucent panel hides the other video controls; tap outside the panel to close it (there is no close button).
+The player checks the selected camera's cloud capability set. Supported cameras show a four-direction PTZ button on the left side of the video after live playback starts. Unsupported/unknown devices show no PTZ entry. Opening the translucent panel hides the other video controls; tap outside the panel to close it (there is no close button).
 
 - Tap an arrow for a short movement; press and hold for continuous movement.
 - Releasing, pointer cancellation, leaving the control area, closing the panel, stopping the video or leaving the dashboard sends a stop request.

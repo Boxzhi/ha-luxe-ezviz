@@ -745,7 +745,7 @@
       const makeRecordFileBase = () => {
         const now=new Date();
         const pad=value=>String(value).padStart(2,'0');
-        const stamp=String(now.getFullYear())+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());
+        const stamp=String(now.getFullYear())+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'_'+String(now.getMilliseconds()).padStart(3,'0');
         const room=safeRecordPart(recordDisplayName,'萤石摄像机');
         const serial=safeRecordPart(recordDeviceSerial.slice(-4)||'设备','设备');
         return room+'_'+serial+'_'+stamp;

@@ -1,8 +1,9 @@
-/* Luxe EZVIZ camera card · v1.2.0-beta.1 · local recording, serial downloads, PTZ and navigation recovery. */
+/* Luxe EZVIZ camera card · v1.2.0-beta.2 · local recording, MP4 metadata repair, serial downloads, PTZ and navigation recovery. */
+import { repairMp4Metadata } from './luxe-mp4-metadata-repair.js?v=1.2.0-beta.2';
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.2.0-beta.1-ezuikit-9.0.24';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.2.0-beta.2-ezuikit-9.0.24';
 
   // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
   // cards in this HA page. Muting is invoked directly inside each same-origin
@@ -486,16 +487,35 @@
       if(data.state==='RECORD_FILE'){
         const blob=data.file;
         const filename=typeof data.filename==='string'&&data.filename.trim()?data.filename:'ezviz-recording.mp4';
+        const frame=this._iframe?.contentWindow||null;
+        const id=this._id;
         if(!(blob instanceof Blob)||!blob.size){
-          try{this._iframe.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id:this._id,
+          try{frame?.postMessage({type:'LUXE_EZVIZ_PARENT',id,
             command:'RECORD_DOWNLOAD_RESULT',success:false,filename},location.origin);}catch(_){}
           return;
         }
-        RECORD_DOWNLOAD_COORDINATOR.enqueue({
-          blob,filename,frame:this._iframe?.contentWindow||null,id:this._id
-        });
-        try{this._iframe.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id:this._id,
-          command:'RECORD_FILE_ACCEPTED',success:true,filename},location.origin);}catch(_){}
+        // Inspect MP4 metadata before handing the Blob to the existing serial
+        // download queue. Unsupported or ambiguous files remain byte-identical.
+        void (async()=>{
+          let downloadBlob=blob;
+          try{
+            const result=await repairMp4Metadata(blob);
+            if(result?.blob instanceof Blob&&result.blob.size===blob.size)downloadBlob=result.blob;
+            if(result?.status==='repaired'){
+              console.info('[Luxe EZVIZ] MP4 metadata repaired:',result.codec,
+                result.width+'x'+result.height,'fields:',result.fields?.length||0);
+            }else if(result?.status==='skipped'){
+              console.debug('[Luxe EZVIZ] MP4 metadata left unchanged:',result.reason||'unsupported');
+            }
+          }catch(_){
+            // A repair failure must never discard a completed original recording.
+            downloadBlob=blob;
+            console.warn('[Luxe EZVIZ] MP4 metadata inspection failed; original recording retained.');
+          }
+          RECORD_DOWNLOAD_COORDINATOR.enqueue({blob:downloadBlob,filename,frame,id});
+          try{frame?.postMessage({type:'LUXE_EZVIZ_PARENT',id,
+            command:'RECORD_FILE_ACCEPTED',success:true,filename},location.origin);}catch(_){}
+        })();
         return;
       }
       if(data.state==='STOP_BLOCKED'){

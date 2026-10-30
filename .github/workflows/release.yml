@@ -71,6 +71,7 @@ jobs:
           print(f"Extracted {len(scripts)} inline script(s)")
           PY
           for script in /tmp/luxe-player-*.js; do node --check "$script"; done
+          node --test tests/test_mp4_metadata_repair.mjs
 
   hacs:
     runs-on: ubuntu-latest
@@ -133,7 +134,7 @@ jobs:
           body: |
             ## Luxe EZVIZ v${{ steps.meta.outputs.version }}
 
-            This is a HACS beta test release for the v1.2.0 recording and player UI changes.
+            This is a HACS beta test release based on v1.2.0-beta.1, adding conservative MP4 metadata validation and repair for local recordings.
 
             - Keeps the production integration domain, saved config entries, API routes, and card type.
             - Adds per-camera local recording, a 30-minute limit, a 25-minute warning, and independent per-camera state.
@@ -141,6 +142,7 @@ jobs:
             - Uses original-stream recording mode (enabledWatermarkRecord: false) to avoid a second WASM transcode; audio preservation while playback is muted must be verified on real cameras.
             - Multiple cameras may record concurrently; download triggers are serialized with a short gap. Browsers do not expose a reliable download-completed event.
             - Player teardown attempts to stop and hand off recordings before releasing the player. Browser/app force-close cannot guarantee recovery.
+            - Adds browser-side AVC/HEVC MP4 metadata inspection. Only zero-valued Sample Entry/tkhd dimensions are repaired when SPS size and display geometry are unambiguous; valid files remain byte-for-byte unchanged. No remuxing or transcoding is performed.
 
             ### Install the beta through HACS
             1. In HACS, open the Luxe EZVIZ integration menu and enable/show beta versions.
@@ -148,7 +150,7 @@ jobs:
             3. Restart Home Assistant.
             4. Test first with one camera, then two cameras recording simultaneously.
 
-            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, use /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.1-ezuikit-9.0.24.
+            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, use /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.2-ezuikit-9.0.24.
           files: |
             ${{ steps.meta.outputs.zip }}
             ${{ steps.meta.outputs.zip }}.sha256

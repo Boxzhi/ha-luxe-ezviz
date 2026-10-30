@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.2.0-beta.1` — HACS beta test of the player UI refresh and local recording on EZUIKit 9.0.24. The production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.2.0-beta.2` — beta.1 baseline with conservative AVC/HEVC MP4 metadata validation and zero-dimension repair on EZUIKit 9.0.24. The production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.1-ezuikit-9.0.24
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.2-ezuikit-9.0.24
       type: module
 ```
 
@@ -42,7 +42,8 @@ This is a pre-release for testing. It updates the existing production integratio
 - Recording audio is intended to preserve the camera's source audio independently of live playback mute. Verify this on real cameras; the SDK's browser/player behavior can vary by stream and device.
 - Multiple cameras may record at the same time. Completed file downloads are triggered one at a time with a short gap; browser APIs do not expose reliable download-completed notifications.
 - Leaving the dashboard asks active players to stop and hand off recordings before teardown. Force-closing the browser or HA app can still interrupt an unfinished save.
-- The recording output container/codec is determined by EZUIKit 9.0.24; verify playback using the EZVIZ player before relying on the files.
+- Adds browser-side MP4 metadata validation for AVC (`avc1`/`avc3`) and HEVC (`hvc1`/`hev1`) recordings. When the SPS provides an unambiguous display size and the track uses an identity matrix without `clap`/`pasp`, only zero-valued Sample Entry and/or `tkhd` dimensions are repaired.
+- Valid files are passed through as the original Blob without changing any bytes. Unsupported or conflicting metadata is left untouched; the repair does not remux or transcode audio/video.
 
 Because this is a beta, test with one camera first, then two cameras simultaneously. Do not treat the first beta as a validated unattended recording solution.
 

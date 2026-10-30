@@ -2,6 +2,8 @@
 
 This is a pre-release test build of the existing production integration domain (luxe_ezviz). Installing it through HACS updates the existing integration in place; it does not install a second integration.
 
+Release channel: GitHub pre-release v1.2.0-beta.1. The stable v1.1.2 release remains unchanged and latest.
+
 ## Before installing
 
 - Back up the current custom_components/luxe_ezviz folder and Home Assistant configuration.

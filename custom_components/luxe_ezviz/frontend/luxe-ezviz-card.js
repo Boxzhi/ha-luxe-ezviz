@@ -1,8 +1,8 @@
-/* Luxe EZVIZ camera card · v1.1.2 · optional per-device image, audio exclusivity, PTZ and navigation recovery. */
+/* Luxe EZVIZ camera card · v1.2.0-beta.1 · local recording, serial downloads, PTZ and navigation recovery. */
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.1.2-ezuikit-9.0.24';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.2.0-beta.1-ezuikit-9.0.24';
 
   // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
   // cards in this HA page. Muting is invoked directly inside each same-origin
@@ -47,6 +47,33 @@
       claimFrame(frame,mode='sound'){
         const card=this.cardForFrame(frame);
         return card?this.claim(card,mode):{allowed:true,reason:null,completion:Promise.resolve(true)};
+      }
+    });
+  // SDK recording is configured with downloadRecord:false. Each iframe transfers
+  // its completed Blob here; this page-level queue triggers one browser download
+  // at a time and remains alive after an individual card/iframe is removed.
+  const RECORD_DOWNLOAD_COORDINATOR = window.__luxeEzvizRecordDownloadCoordinator ||
+    (window.__luxeEzvizRecordDownloadCoordinator = {
+      queue:[],active:false,sequence:0,
+      enqueue(task){this.queue.push({...task,sequence:++this.sequence});this.pump();},
+      notify(task,success){
+        try{task.frame?.postMessage({type:'LUXE_EZVIZ_PARENT',id:task.id,command:'RECORD_DOWNLOAD_RESULT',success:Boolean(success),filename:task.filename},location.origin);}catch(_){}
+      },
+      pump(){
+        if(this.active||!this.queue.length)return;
+        this.active=true;
+        const task=this.queue.shift();
+        try{
+          if(!(task.blob instanceof Blob)||!task.blob.size)throw new Error('record_blob_invalid');
+          const url=URL.createObjectURL(task.blob);
+          const anchor=document.createElement('a');anchor.href=url;anchor.download=task.filename;anchor.rel='noopener';anchor.style.display='none';
+          document.body.appendChild(anchor);anchor.click();anchor.remove();
+          this.notify(task,true);
+          setTimeout(()=>URL.revokeObjectURL(url),60000);
+        }catch(_){this.notify(task,false);}
+        // Browser APIs do not expose a reliable completion event for anchor downloads.
+        // Serialize download triggers with a short gap.
+        setTimeout(()=>{this.active=false;this.pump();},1600);
       }
     });
 
@@ -199,6 +226,7 @@
       };
       this._state='idle';this._iframe=null;this._session=null;this._id=null;this._stopReset=true;this._pipActive=false;this._isOffscreen=false;this._nativeFullscreenActive=false;
       this._frameStarted=false;this._audioForceMuted=false;this._audioSoundOn=false;
+      this._recordingState='idle';
       this._timer=null;this._stopTimer=null;this._intersectionTimer=null;this._intersection=null;
       this._disconnectTimer=null;this._disconnectAt=0;this._disconnectGraceMs=1500;
       this._needsIdleAfterNavigation=false;
@@ -441,7 +469,9 @@
             this._audioForceMuted||AUDIO_COORDINATOR.owner!==this;
           this._frameStarted=true;
           frame.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id,
-            command:'START',session,muted},location.origin);
+            command:'START',session,muted,
+            recordName:this._config?.room||this._metadata?.display_name||this._config?.title||'萤石摄像机',
+            deviceSerial:this._config?.device_serial||''},location.origin);
         };
         void startPlayer().catch(()=>{
           if(this._id===id)this._fail('audio_coordination_failed');
@@ -449,6 +479,29 @@
         return;
       }
       if(data.id!==this._id)return;
+      if(data.state==='RECORD_STATE'){
+        this._recordingState=String(data.recordingState||'idle');
+        return;
+      }
+      if(data.state==='RECORD_FILE'){
+        const blob=data.file;
+        const filename=typeof data.filename==='string'&&data.filename.trim()?data.filename:'ezviz-recording.mp4';
+        if(!(blob instanceof Blob)||!blob.size){
+          try{this._iframe.contentWindow.postMessage({type:'LUXE_EZVIZ_PARENT',id:this._id,
+            command:'RECORD_DOWNLOAD_RESULT',success:false,filename},location.origin);}catch(_){}
+          return;
+        }
+        RECORD_DOWNLOAD_COORDINATOR.enqueue({
+          blob,filename,frame:this._iframe?.contentWindow||null,id:this._id
+        });
+        return;
+      }
+      if(data.state==='STOP_BLOCKED'){
+        clearTimeout(this._stopTimer);this._stopTimer=null;
+        this._recordingState='error';
+        if(this._state==='stopping')this._setState('live');
+        return;
+      }
       if(data.state==='AUDIO_STATE'){
         this._audioSoundOn=Boolean(data.soundOn);
         if(this._audioSoundOn&&AUDIO_COORDINATOR.owner!==this)
@@ -552,7 +605,7 @@
         return;
       }
       this._stop(true,'navigation');
-      const deadline=Date.now()+5500;
+      const deadline=Date.now()+((this._recordingState&&this._recordingState!=='idle')?45000:5500);
       while((this._iframe || this._state==='stopping') && Date.now()<deadline){
         await new Promise(resolve=>setTimeout(resolve,50));
       }
@@ -572,13 +625,15 @@
         this._setState('stopping');
         try{frame.contentWindow?.postMessage({type:'LUXE_EZVIZ_PARENT',id:sessionId,command:'STOP'},location.origin);}catch(_){}
         clearTimeout(this._stopTimer);
-        this._stopTimer=setTimeout(()=>this._finishStop(sessionId,reset),5200);
+        const recordingPending=this._recordingState&&this._recordingState!=='idle';
+        this._stopTimer=setTimeout(()=>this._finishStop(sessionId,reset),recordingPending?45000:5200);
       }else this._finishStop(sessionId,reset);
     }
     _finishStop(sessionId=this._id,reset=this._stopReset){
       if(sessionId!==this._id)return;
       clearTimeout(this._stopTimer);this._stopTimer=null;
       this._frameStarted=false;this._audioSoundOn=false;this._audioForceMuted=false;
+      this._recordingState='idle';
       AUDIO_COORDINATOR.release(this);
       clearTimeout(this._timer);this._timer=null;
       this._iframe?.remove();this._iframe=null;this._session=null;this._id=null;

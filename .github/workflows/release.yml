@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Validate production version and SDK pins
+      - name: Validate integration version and EZUIKit pins
         run: |
           set -euo pipefail
           python -m compileall -q custom_components/luxe_ezviz
@@ -30,7 +30,7 @@ jobs:
           manifest = json.loads(Path("custom_components/luxe_ezviz/manifest.json").read_text())
           sdk = json.loads(Path("custom_components/luxe_ezviz/sdk_hashes.json").read_text())
           assert manifest["domain"] == "luxe_ezviz"
-          assert manifest["version"] == "1.1.2"
+          assert manifest["version"].startswith("1.2.0")
           assert sdk["version"] == "9.0.24"
           assert len(sdk["files"]) == 12
           assert "ezuikit_static/libSystemTransformWASM.js" in sdk["files"]
@@ -42,7 +42,10 @@ jobs:
               for pin in sdk["files"].values()
           )
           assert "luxe_ezviz_sdk" in Path("custom_components/luxe_ezviz/sdk.py").read_text()
-          print("Luxe EZVIZ 1.1.2 / EZUIKit 9.0.24 manifest is consistent.")
+          player = Path("custom_components/luxe_ezviz/frontend/player.html").read_text()
+          assert 'id="record"' in player and "downloadRecord:false" in player
+          assert "recordOptions:{enabledWatermarkRecord:false}" in player
+          print(f"Luxe EZVIZ {manifest['version']} / EZUIKit 9.0.24 metadata is consistent.")
           PY
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
@@ -88,43 +91,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build HACS-compatible integration ZIP
+      - name: Read release metadata
+        id: meta
         run: |
           set -euo pipefail
-          test "$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/manifest.json"))["version"])')" = "1.1.2"
-          test "$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/sdk_hashes.json"))["version"])')" = "9.0.24"
+          VERSION="$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/manifest.json"))["version"])')"
+          SDK_VERSION="$(python -c 'import json; print(json.load(open("custom_components/luxe_ezviz/sdk_hashes.json"))["version"])')"
+          test "$SDK_VERSION" = "9.0.24"
+          TAG="v$VERSION"
+          ZIP="luxe-ezviz-$TAG.zip"
+          PRERELEASE=false
+          MAKE_LATEST=true
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE=true
+            MAKE_LATEST=false
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
+      - name: Build HACS-compatible integration ZIP
+        env:
+          ZIP_NAME: ${{ steps.meta.outputs.zip }}
+        run: |
+          set -euo pipefail
           mkdir -p dist/luxe_ezviz
           cp -a custom_components/luxe_ezviz/. dist/luxe_ezviz/
-          (cd dist && zip -qr "../luxe-ezviz-v1.1.2.zip" luxe_ezviz)
-          sha256sum "luxe-ezviz-v1.1.2.zip" > "luxe-ezviz-v1.1.2.zip.sha256"
-      - name: Publish official GitHub Release
+          (cd dist && zip -qr "../$ZIP_NAME" luxe_ezviz)
+          sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.2
+          tag_name: ${{ steps.meta.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Luxe EZVIZ v1.1.2 — EZUIKit 9.0.24
-          prerelease: false
+          name: Luxe EZVIZ v${{ steps.meta.outputs.version }} — EZUIKit 9.0.24
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           draft: false
-          make_latest: true
+          make_latest: ${{ steps.meta.outputs.make_latest }}
           generate_release_notes: false
           body: |
-            ## Luxe EZVIZ v1.1.2
+            ## Luxe EZVIZ v${{ steps.meta.outputs.version }}
 
-            Upgrades the production integration from EZUIKit 9.0.5 to the hardware-tested EZUIKit 9.0.24.
+            This is a HACS beta test release for the v1.2.0 recording and player UI changes.
 
-            - Keeps the existing `luxe_ezviz` integration domain, config entries, API paths, and `custom:luxe-ezviz-card` card type.
-            - Retains the previously released multi-camera audio exclusivity, talk coordination, PTZ safety, and playback lifecycle behavior.
-            - Uses a version-scoped cache at `/config/luxe_ezviz_sdk/9.0.24`; the old 9.0.5 cache is not overwritten.
-            - Downloads SDK files from the official npm registry and verifies each required file against the pinned official Git blob ID and exact size.
-            - Does not redistribute third-party EZUIKit vendor files.
+            - Keeps the production integration domain, saved config entries, API routes, and card type.
+            - Adds per-camera local recording, a 30-minute limit, a 25-minute warning, and independent per-camera state.
+            - Uses EZUIKit 9.0.24 with SDK auto-download disabled so completed recording Blobs can be passed to a page-level serial download queue.
+            - Uses original-stream recording mode (enabledWatermarkRecord: false) to avoid a second WASM transcode; audio preservation while playback is muted must be verified on real cameras.
+            - Multiple cameras may record concurrently; download triggers are serialized with a short gap. Browsers do not expose a reliable download-completed event.
+            - Player teardown attempts to stop and hand off recordings before releasing the player. Browser/app force-close cannot guarantee recovery.
 
-            ### Upgrade via HACS
-            1. Open HACS → Integrations → Luxe EZVIZ.
-            2. Select v1.1.2 and download/update.
+            ### Install the beta through HACS
+            1. In HACS, open the Luxe EZVIZ integration menu and enable/show beta versions.
+            2. Select v${{ steps.meta.outputs.version }} and download/update.
             3. Restart Home Assistant.
-            4. Check the Home Assistant logs for SDK provisioning or integrity errors.
+            4. Test first with one camera, then two cameras recording simultaneously.
 
-            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, update the cache-busting resource URL to `/luxe_ezviz/static/luxe-ezviz-card.js?v=1.1.2-ezuikit-9.0.24`.
+            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, use /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.1-ezuikit-9.0.24.
           files: |
-            luxe-ezviz-v1.1.2.zip
-            luxe-ezviz-v1.1.2.zip.sha256
+            ${{ steps.meta.outputs.zip }}
+            ${{ steps.meta.outputs.zip }}.sha256

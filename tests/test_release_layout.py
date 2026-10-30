@@ -13,7 +13,7 @@ class PackageChecks(unittest.TestCase):
   h=json.loads((ROOT/'hacs.json').read_text())
   self.assertEqual(m['domain'],'luxe_ezviz')
   self.assertEqual(m['name'],h['name'])
-  self.assertEqual(m['version'],'1.2.0')
+  self.assertEqual(m['version'],'1.2.1')
   self.assertIn('issue_tracker',m)
   keys=list(m)
   self.assertEqual(keys[:2],['domain','name'])
@@ -30,7 +30,7 @@ class PackageChecks(unittest.TestCase):
   self.assertIn('/luxe_ezviz/sdk/ezuikit.js',player)
   self.assertIn("staticPath:'/luxe_ezviz/sdk/ezuikit_static'",player)
   self.assertNotIn('/local/luxe-ezviz/player.html',card)
- def test_v120_recording_and_control_layout(self):
+ def test_v121_recording_and_control_layout(self):
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
   self.assertIn('RECORD_DOWNLOAD_COORDINATOR',card)
@@ -39,7 +39,7 @@ class PackageChecks(unittest.TestCase):
   self.assertIn("waitForRecordFileAccepted",player)
   self.assertIn("recordName:this._config",card)
   self.assertIn("await repairMp4Metadata(blob)",card)
-  self.assertIn("luxe-mp4-metadata-repair.js?v=1.2.0",card)
+  self.assertIn("luxe-mp4-metadata-repair.js?v=1.2.1",card)
   repair=(COMP/'frontend/luxe-mp4-metadata-repair.js').read_text()
   self.assertIn("export async function repairMp4Metadata",repair)
   self.assertIn("MAX_MOOV_BYTES",repair)

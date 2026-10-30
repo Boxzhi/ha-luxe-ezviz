@@ -30,7 +30,7 @@ jobs:
           manifest = json.loads(Path("custom_components/luxe_ezviz/manifest.json").read_text())
           sdk = json.loads(Path("custom_components/luxe_ezviz/sdk_hashes.json").read_text())
           assert manifest["domain"] == "luxe_ezviz"
-          assert manifest["version"] == "1.2.0"
+          assert manifest["version"] == "1.2.1"
           assert sdk["version"] == "9.0.24"
           assert len(sdk["files"]) == 12
           assert "ezuikit_static/libSystemTransformWASM.js" in sdk["files"]
@@ -134,23 +134,21 @@ jobs:
           body: |
             ## Luxe EZVIZ v${{ steps.meta.outputs.version }}
 
-            Stable v1.2.0 release, based on v1.2.0-beta.2 after real-device regression of local recording and MP4 metadata repair.
+            Stable v1.2.1 patch release based on the v1.2.0 production baseline.
 
+            - Widens the recording camera icon horizontally only; its height remains unchanged.
+            - Keeps the 23px SVG viewport, stroke weight, button position, and 36px hit area unchanged. The recording-state dot and spinner are re-centered within the wider body.
             - Preserves the existing integration domain, saved config entries, API routes, card type, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle.
-            - Supports per-camera local recording with a 30-minute maximum, a 25-minute warning, and independent recording timers. Multiple cameras may record concurrently.
-            - Uses EZUIKit 9.0.24 with SDK auto-download disabled; completed recording Blobs are passed to the page-level serial download queue.
-            - Preserves camera-source audio in recordings independently of the live playback mute state.
-            - Adds conservative AVC/HEVC MP4 metadata validation. Only unambiguous zero-valued Sample Entry and/or tkhd dimensions are repaired from the codec SPS; valid files remain byte-for-byte unchanged. No remuxing or transcoding is performed.
-            - Refines recording controls with a left-facing camera icon, white idle outline, red recording center, and a compact translucent elapsed-time label. The REC text is removed; the 25-minute warning uses amber styling.
-            - Recording controls remain hidden when the active EZUIKit player does not expose both recording methods.
-            - Download triggers are serialized with a short gap because browsers do not expose a reliable download-completed event.
-            - Player teardown attempts to stop and hand off recordings before releasing the player. Force-closing the browser or HA app can still interrupt an unfinished save.
+            - Keeps per-camera local recording, the 25-minute warning, the 30-minute maximum, simultaneous camera recording, and the page-level serial download queue unchanged.
+            - Keeps conservative AVC/HEVC MP4 metadata repair unchanged; no remuxing or transcoding is introduced.
+            - Keeps EZUIKit pinned to 9.0.24.
+            - Does not change recording filename generation or SDK-provided filename handling.
 
             ### Install or update through HACS
             1. Open HACS and select Luxe EZVIZ.
             2. Install or update to stable v${{ steps.meta.outputs.version }}.
             3. Restart Home Assistant.
-            4. If using YAML Lovelace resources, update the module URL to /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-ezuikit-9.0.24.
+            4. If using YAML Lovelace resources, update the module URL to /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.1-ezuikit-9.0.24-record-icon-width.
 
             Existing integration configuration and dashboard YAML remain unchanged.
           files: |

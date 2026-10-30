@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.2.0` — stable release based on beta.2, with verified local recording, conservative AVC/HEVC MP4 metadata repair, and refined recording controls on EZUIKit 9.0.24. The existing integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.2.1` — stable patch release based on v1.2.0, with a horizontal-only refinement to the recording camera icon. Recording behavior, MP4 metadata repair, EZUIKit 9.0.24, and the existing integration configuration remain unchanged. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-ezuikit-9.0.24
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.1-ezuikit-9.0.24-record-icon-width
       type: module
 ```
 
@@ -29,6 +29,19 @@ autoplay: false
 muted: true
 debug: false
 ```
+
+## v1.2.1 release notes
+
+This is a stable patch release based on the v1.2.0 production baseline.
+
+- Widens the recording camera icon horizontally only; its height remains unchanged.
+- Keeps the 23px SVG viewport, stroke weight, button position, 36px hit area, and screenshot control unchanged.
+- Re-centers the recording-state dot and spinner within the wider camera body.
+- Keeps the existing recording lifecycle, 25-minute warning, 30-minute maximum, multi-camera recording, serial download queue, and MP4 metadata repair unchanged.
+- Keeps EZUIKit pinned to 9.0.24.
+- Does not change recording filename generation or SDK-provided filename handling.
+
+Existing integration configuration and dashboard YAML remain unchanged.
 
 ## v1.2.0 release notes
 

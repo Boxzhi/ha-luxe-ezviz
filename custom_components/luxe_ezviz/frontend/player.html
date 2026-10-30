@@ -839,6 +839,7 @@
           if(!downloaded)throw new Error('record_download_failed');
           if(!forTeardown)showToast('录像下载已触发，请检查设备下载列表');
           resetRecordSession();
+          if(!forTeardown)showControls(true);
           return true;
         })().catch(error=>{
           clearInterval(recordTimer);recordTimer=null;

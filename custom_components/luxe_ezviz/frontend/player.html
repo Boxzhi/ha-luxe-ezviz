@@ -144,7 +144,7 @@
       transition:opacity .18s ease,transform .18s ease}
     #record svg{width:23px;height:23px;stroke-width:1.98}
     #record:disabled{opacity:1;cursor:progress}
-    #record .record-spinner{transform-box:view-box;transform-origin:13px 12px;
+    #record .record-spinner{transform-box:view-box;transform-origin:14px 12px;
       animation:record-spin .85s linear infinite}
     #record-status{position:absolute;top:10px;right:8px;z-index:6;display:flex;align-items:center;
       gap:6px;padding:5px 8px;border:0;border-radius:8px;
@@ -331,9 +331,9 @@
   </button>
   <button class="control" id="record" type="button" aria-label="开始录像" title="开始录像" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="7" y="5" width="12" height="14" rx="2.5"/>
+      <rect x="7" y="5" width="14" height="14" rx="2.5"/>
       <path d="M7 9 3 6.8v10.4L7 15"/>
-      <circle class="record-center" cx="13" cy="12" r="2.5" fill="#fff" stroke="none"/>
+      <circle class="record-center" cx="14" cy="12" r="2.5" fill="#fff" stroke="none"/>
     </svg>
   </button>
   <div id="record-status" hidden aria-live="polite">
@@ -767,15 +767,15 @@
         const serial=safeRecordPart(recordDeviceSerial.slice(-4)||'设备','设备');
         return room+'_'+serial+'_'+stamp;
       };
-      const recordCameraOutline='<rect x="7" y="5" width="12" height="14" rx="2.5"/><path d="M7 9 3 6.8v10.4L7 15"/>';
+      const recordCameraOutline='<rect x="7" y="5" width="14" height="14" rx="2.5"/><path d="M7 9 3 6.8v10.4L7 15"/>';
       const recordIcon = state => {
-        let indicator='<circle cx="13" cy="12" r="2.5" fill="#fff" stroke="none"/>';
+        let indicator='<circle cx="14" cy="12" r="2.5" fill="#fff" stroke="none"/>';
         if(state==='recording')
-          indicator='<circle cx="13" cy="12" r="2.5" fill="#ff515b" stroke="none"/>';
+          indicator='<circle cx="14" cy="12" r="2.5" fill="#ff515b" stroke="none"/>';
         else if(state==='starting'||state==='stopping'||state==='saving')
-          indicator='<circle class="record-spinner" cx="13" cy="12" r="2.5" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="10 6"/>';
+          indicator='<circle class="record-spinner" cx="14" cy="12" r="2.5" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="10 6"/>';
         else if(state==='error')
-          indicator='<path d="M14.9 10.2a2.5 2.5 0 1 0 .2 3.1M15 8.7v2.1h-2.1" fill="none" stroke="#ff515b" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>';
+          indicator='<path d="M15.9 10.2a2.5 2.5 0 1 0 .2 3.1M16 8.7v2.1h-2.1" fill="none" stroke="#ff515b" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>';
         return '<svg viewBox="0 0 24 24" aria-hidden="true">'+recordCameraOutline+indicator+'</svg>';
       };
       const setRecordState = state => {

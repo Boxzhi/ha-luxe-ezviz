@@ -22,7 +22,7 @@ class PackageChecks(unittest.TestCase):
   m=json.loads((COMP/'manifest.json').read_text())
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
-  asset_version=m['version']+'-ezuikit-9.0.24'
+  asset_version=m['version']+'-ezuikit-9.0.24-record-icon-width'
   self.assertIn('/luxe_ezviz/static/player.html?v='+asset_version,card)
   setup=(COMP/'frontend_setup.py').read_text()
   self.assertIn("VERSION='"+m['version']+"'",setup)
@@ -48,6 +48,9 @@ class PackageChecks(unittest.TestCase):
   self.assertIn('id="record"',player)
   self.assertIn('id="record-status"',player)
   self.assertIn('M7 9 3 6.8v10.4L7 15',player)
+  self.assertEqual(player.count('<rect x="7" y="5" width="14" height="14" rx="2.5"/>'),2)
+  self.assertEqual(player.count('cx="14" cy="12" r="2.5"'),4)
+  self.assertIn('transform-origin:14px 12px',player)
   self.assertIn('#record svg{width:23px;height:23px;stroke-width:1.98}',player)
   self.assertIn('#screenshot svg{width:23px;height:23px;stroke-width:1.98}',player)
   self.assertIn("recordStatusDot.hidden=state!=='recording'",player)

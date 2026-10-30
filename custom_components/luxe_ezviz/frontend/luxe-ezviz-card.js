@@ -3,7 +3,7 @@ import { repairMp4Metadata } from './luxe-mp4-metadata-repair.js?v=1.2.0';
 (() => {
   'use strict';
   if (customElements.get('luxe-ezviz-card')) return;
-  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.2.0-ezuikit-9.0.24';
+  const FRAME_PATH = '/luxe_ezviz/static/player.html?v=1.2.0-ezuikit-9.0.24-record-icon-width';
 
   // One same-origin coordinator owns sound/talk exclusivity for all Luxe EZVIZ
   // cards in this HA page. Muting is invoked directly inside each same-origin

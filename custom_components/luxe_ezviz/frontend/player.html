@@ -401,6 +401,7 @@
       let recordDownloadTimeout = null;
       let recordFileBase = '';
       let recordFileBlob = null;
+      let recordFileUrl = '';
       let recordFileName = '';
       let recordWarningShown = false;
       let recordDisplayName = '萤石摄像机';
@@ -802,7 +803,7 @@
         clearInterval(recordTimer);recordTimer=null;
         clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;
         recordDownloadResolver=null;recordStartedAt=0;recordFileBase='';
-        recordFileBlob=null;recordFileName='';recordWarningShown=false;
+        recordFileBlob=null;recordFileUrl='';recordFileName='';recordWarningShown=false;
         recordStopPromise=null;recordStartPromise=null;
         setRecordState('idle');
       };
@@ -818,12 +819,18 @@
           setRecordState('stopping');
           let blob=recordFileBlob;
           let filename=recordFileName;
+          if(!blob&&recordFileUrl){
+            const response=await fetch(recordFileUrl);
+            if(!response.ok)throw new Error('record_blob_fetch_failed');
+            blob=await response.blob();
+          }
           if(!blob){
             const result=await Promise.resolve(instance.stopSave());
             const data=result?.data||result||instance.recordRes||null;
+            recordFileUrl=typeof data?.url==='string'&&data.url.startsWith('blob:')?data.url:'';
             blob=data?.file instanceof Blob?data.file:null;
-            if(!blob&&typeof data?.url==='string'&&data.url.startsWith('blob:')){
-              const response=await fetch(data.url);
+            if(!blob&&recordFileUrl){
+              const response=await fetch(recordFileUrl);
               if(!response.ok)throw new Error('record_blob_fetch_failed');
               blob=await response.blob();
             }

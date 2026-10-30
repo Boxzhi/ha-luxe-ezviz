@@ -69,7 +69,7 @@
           const anchor=document.createElement('a');anchor.href=url;anchor.download=task.filename;anchor.rel='noopener';anchor.style.display='none';
           document.body.appendChild(anchor);anchor.click();anchor.remove();
           this.notify(task,true);
-          setTimeout(()=>URL.revokeObjectURL(url),60000);
+          setTimeout(()=>URL.revokeObjectURL(url),600000);
         }catch(_){this.notify(task,false);}
         // Browser APIs do not expose a reliable completion event for anchor downloads.
         // Serialize download triggers with a short gap.

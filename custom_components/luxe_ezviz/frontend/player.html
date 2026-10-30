@@ -130,14 +130,34 @@
     body.live.controls-visible #controls{opacity:1;visibility:visible;transform:translateY(0);
       transition:opacity .18s ease,transform .18s ease;pointer-events:auto}
     body.live.controls-visible #shade{opacity:1}
-    /* Screenshot: independent right-edge control, vertically centered in the video frame.
-       Visibility mirrors the bottom controls without inheriting their bottom anchoring. */
-    #screenshot{position:absolute;top:50%;right:8px;z-index:5;
+    /* Right-side capture stack: screenshot above recording, both centered as a group. */
+    #screenshot,#record{position:absolute;right:8px;z-index:5;
       opacity:0;visibility:hidden;transform:translateY(calc(-50% + 3px));pointer-events:none;
       transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
-    body.live.controls-visible #screenshot{opacity:1;visibility:visible;
+    #screenshot{top:calc(50% - 22px)}
+    #record{top:calc(50% + 22px);color:#ff5555}
+    body.live.controls-visible #screenshot,body.live.controls-visible #record{opacity:1;visibility:visible;
       transform:translateY(-50%);pointer-events:auto;
       transition:opacity .18s ease,transform .18s ease}
+    body.recording #record{opacity:1!important;visibility:visible!important;
+      transform:translateY(-50%)!important;pointer-events:auto!important;
+      transition:opacity .18s ease,transform .18s ease}
+    #record svg{width:23px;height:23px;stroke-width:2.1}
+    #record .record-spinner{animation:spin .9s linear infinite}
+    #record-status{position:absolute;top:10px;right:8px;z-index:6;display:flex;align-items:center;
+      gap:6px;padding:5px 8px;border:1px solid rgba(255,90,90,.24);border-radius:7px;
+      background:rgba(22,12,15,.58);color:#ff6868;
+      font:600 12px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;
+      font-variant-numeric:tabular-nums;pointer-events:none;white-space:nowrap}
+    #record-status[hidden]{display:none!important}
+    #record-status .record-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#ff4b55}
+    #record-status.warning{color:#ffd08a;border-color:rgba(255,190,90,.28);background:rgba(32,24,12,.62)}
+    #record-status.warning .record-dot{background:#ffb547}
+    body.recording #record-status{display:flex!important}
+    body.recording #controls,body.recording #screenshot,body.recording #ptz-trigger,
+    body.recording #ptz-panel,body.recording #ptz-dismiss,body.recording #quality-menu,
+    body.recording #shade{opacity:0!important;visibility:hidden!important;pointer-events:none!important}
+    body.recording #record-status{opacity:1!important;visibility:visible!important}
     /* Card mode does not use the phone safe-area; real fullscreen does. */
     body.fullscreen-active #controls{bottom:max(7px,env(safe-area-inset-bottom))}
     .cluster{display:flex;align-items:center;gap:4px}
@@ -171,10 +191,10 @@
     #quality[aria-expanded="true"]{background:rgba(30,48,70,.92);border-color:rgba(235,243,255,.8)}
     /* Compact menu styled after EZVIZ's official quality selector. Four common
        levels fit without a scrollbar; extra device-provided levels remain scrollable. */
-    #quality-menu{position:absolute;right:73px;bottom:49px;z-index:9;width:104px;
-      max-width:calc(100vw - 20px);max-height:min(72vh,360px);overflow:auto;padding:4px;
+    #quality-menu{position:fixed;left:8px;top:8px;right:auto;bottom:auto;z-index:9;width:104px;
+      max-width:calc(100vw - 16px);max-height:min(72vh,360px);overflow:auto;padding:4px;
       display:flex;flex-direction:column;gap:2px;border:1px solid rgba(225,236,250,.12);
-      border-radius:8px;background:rgba(3,5,9,.67);backdrop-filter:blur(10px);
+      border-radius:8px;background:rgba(3,5,9,.54);backdrop-filter:blur(10px);
       -webkit-backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(0,0,0,.34);
       scrollbar-width:none;-ms-overflow-style:none}
     #quality-menu::-webkit-scrollbar{display:none}
@@ -190,7 +210,7 @@
     .quality-empty{padding:12px 8px;color:#aeb9c8;text-align:center;font:12px/1.5 -apple-system,BlinkMacSystemFont,sans-serif}
     /* PTZ is a focused overlay: no close button, tap outside to dismiss.
        Keep the video at its original size; do not intercept video SDK layout. */
-    #ptz-trigger{position:absolute;right:8px;top:calc(50% - 44px);z-index:5;
+    #ptz-trigger{position:absolute;left:8px;right:auto;top:50%;z-index:5;
       opacity:0;visibility:hidden;transform:translateY(calc(-50% + 3px));pointer-events:none;
       transition:opacity .20s ease,transform .20s ease,visibility 0s linear .20s}
     body.live.controls-visible #ptz-trigger:not([hidden]){opacity:1;visibility:visible;
@@ -198,7 +218,7 @@
     #ptz-trigger svg{width:23px;height:23px}
     #ptz-dismiss{position:absolute;inset:0;z-index:10;background:transparent;
       touch-action:manipulation;cursor:default}
-    #ptz-panel{position:absolute;top:50%;right:8px;z-index:11;
+    #ptz-panel{position:absolute;top:50%;left:8px;right:auto;z-index:11;
       width:156px;max-width:calc(100% - 16px);max-height:calc(100% - 16px);
       box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;
       transform:translateY(-50%);padding:9px;border-radius:14px;
@@ -228,11 +248,11 @@
       align-self:center;justify-self:center}
     #ptz-tip{text-align:center;color:rgba(228,240,255,.65);
       font:10px/1.35 -apple-system,BlinkMacSystemFont,sans-serif;padding-top:8px}
-    body.ptz-open #controls,body.ptz-open #screenshot,body.ptz-open #ptz-trigger,
+    body.ptz-open #controls,body.ptz-open #screenshot,body.ptz-open #record,body.ptz-open #ptz-trigger,
     body.ptz-open #quality-menu,body.ptz-open #toast{opacity:0!important;
       visibility:hidden!important;pointer-events:none!important}
     body.ptz-open #shade{opacity:0!important}
-    @media(max-width:380px){#ptz-panel{right:5px}}
+    @media(max-width:380px){#ptz-panel{left:5px}}
     @media(max-height:260px){#ptz-panel{width:142px;padding:6px}
       #ptz-panel-title{padding-bottom:4px}
       #ptz-grid{grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px)}
@@ -242,7 +262,7 @@
       font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#f0f3f8;
       pointer-events:none;opacity:0;transition:opacity .2s ease}
     #toast.on{opacity:1}
-    @media(prefers-reduced-motion:reduce){#shade,#controls,#screenshot,#toast{transition:none}.quality-switch-spinner{animation-duration:1.8s}}
+    @media(prefers-reduced-motion:reduce){#shade,#controls,#screenshot,#record,#toast{transition:none}.quality-switch-spinner{animation-duration:1.8s}}
   </style>
 </head>
 <body>
@@ -277,7 +297,7 @@
   </div>
   <!-- PTZ trigger appears only after server-confirmed per-device PTZ capability. -->
   <button class="control" id="ptz-trigger" type="button" aria-label="打开云台控制" title="云台控制" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.2"/><circle cx="12" cy="12" r="2.1"/><path d="m9.2 7.7 2.8-2.8 2.8 2.8M9.2 16.3l2.8 2.8 2.8-2.8M7.7 9.2 4.9 12l2.8 2.8M16.3 9.2l2.8 2.8-2.8 2.8"/></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
   </button>
   <div id="ptz-dismiss" aria-label="点击画面关闭云台控制" hidden></div>
   <div id="ptz-panel" role="group" aria-label="云台方向控制" hidden>
@@ -297,10 +317,18 @@
     </div>
     <div id="ptz-tip">轻点微调 · 长按持续转动</div>
   </div>
-  <!-- Right-hand screenshot button; outside the bottom control strip. -->
+  <!-- Right-hand capture stack; screenshot remains above the local recording control. -->
   <button class="control" id="screenshot" type="button" aria-label="保存当前画面截图" title="截图">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.25 4h-4.5L7.5 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2.5z"/><circle cx="12" cy="13.5" r="3"/></svg>
   </button>
+  <button class="control" id="record" type="button" aria-label="开始录像" title="开始录像" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+  </button>
+  <div id="record-status" hidden aria-live="polite">
+    <span class="record-dot" aria-hidden="true"></span>
+    <span id="record-status-label">REC</span>
+    <span id="record-timer">00:00</span>
+  </div>
   <div id="quality-menu" role="menu" aria-label="选择视频清晰度" hidden>
     <div id="quality-menu-list"></div>
   </div>
@@ -364,6 +392,21 @@
       let toastTimer = null;
       let touchStart = null;
       let screenshotBusy = false;
+      let recordState = 'idle';
+      let recordStartedAt = 0;
+      let recordTimer = null;
+      let recordStartPromise = null;
+      let recordStopPromise = null;
+      let recordDownloadResolver = null;
+      let recordDownloadTimeout = null;
+      let recordFileBase = '';
+      let recordFileBlob = null;
+      let recordFileName = '';
+      let recordWarningShown = false;
+      let recordDisplayName = '萤石摄像机';
+      let recordDeviceSerial = '';
+      const RECORD_MAX_MS = 30 * 60 * 1000;
+      const RECORD_WARNING_MS = 25 * 60 * 1000;
       let pipBusy = false;
       let pipStream = null;
       // iOS native fullscreen controls operate on pipVideo, while EZUIKit audio
@@ -437,6 +480,10 @@
       buttonTalk.hidden = true;
       const buttonFull = document.getElementById('fullscreen');
       const buttonShot = document.getElementById('screenshot');
+      const buttonRecord = document.getElementById('record');
+      const recordStatus = document.getElementById('record-status');
+      const recordStatusLabel = document.getElementById('record-status-label');
+      const recordTimerLabel = document.getElementById('record-timer');
       const ptzTrigger=document.getElementById('ptz-trigger');
       const ptzDismiss=document.getElementById('ptz-dismiss');
       const ptzPanel=document.getElementById('ptz-panel');
@@ -494,7 +541,7 @@
         },time);
       };
       const showControls = (isTouch=false) => {
-        if (!firstFrame || stopping || ptzOpen) return;
+        if (!firstFrame || stopping || ptzOpen || recordState!=='idle') return;
         document.body.classList.add('controls-visible');
         clearTimeout(hideTimer);
         if (isTouch) scheduleHide(3000);
@@ -542,7 +589,7 @@
       const placePtzPanel=()=>{
         if(!ptzOpen||ptzPanel.hidden)return;
         const {minX,minY,maxX,maxY}=ptzLimits();
-        const x=clamp(ptzPosition?.x??1,0,1),y=clamp(ptzPosition?.y??.5,0,1);
+        const x=clamp(ptzPosition?.x??0,0,1),y=clamp(ptzPosition?.y??.5,0,1);
         ptzPanel.style.right='auto';ptzPanel.style.transform='none';
         ptzPanel.style.left=`${minX+(maxX-minX)*x}px`;
         ptzPanel.style.top=`${minY+(maxY-minY)*y}px`;
@@ -683,6 +730,152 @@
         clearTimeout(toastTimer);
         toastTimer=setTimeout(()=>toast.classList.remove('on'),2300);
       };
+      const formatRecordDuration = elapsed => {
+        const totalSeconds=Math.max(0,Math.floor(elapsed/1000));
+        const minutes=Math.floor(totalSeconds/60);
+        const seconds=totalSeconds%60;
+        return String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0');
+      };
+      const safeRecordPart = (value,fallback) => {
+        const cleaned=String(value||fallback).replace(/[\\/:*?"<>|]/g,'_').replace(/\\s+/g,'_')
+          .replace(/[. ]+$/g,'').slice(0,48);
+        return cleaned||fallback;
+      };
+      const makeRecordFileBase = () => {
+        const now=new Date();
+        const pad=value=>String(value).padStart(2,'0');
+        const stamp=String(now.getFullYear())+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());
+        const room=safeRecordPart(recordDisplayName,'萤石摄像机');
+        const serial=safeRecordPart(recordDeviceSerial.slice(-4)||'设备','设备');
+        return room+'_'+serial+'_'+stamp;
+      };
+      const recordIcon = state => {
+        if(state==='starting'||state==='stopping'||state==='saving')
+          return '<svg class="record-spinner" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>';
+        if(state==='recording'||state==='error')
+          return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>';
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>';
+      };
+      const setRecordState = state => {
+        recordState=state;
+        const focused=['starting','recording','stopping','saving','error'].includes(state);
+        document.body.classList.toggle('recording',focused);
+        buttonRecord.innerHTML=recordIcon(state);
+        buttonRecord.disabled=['starting','stopping','saving'].includes(state);
+        const labels={idle:'开始录像',starting:'正在准备录像',recording:'停止录像',
+          stopping:'正在停止录像',saving:'正在保存录像',error:'录像保存失败，点击重试'};
+        buttonRecord.title=labels[state]||'录像';
+        buttonRecord.setAttribute('aria-label',labels[state]||'录像');
+        recordStatus.hidden=!focused;
+        recordStatusLabel.textContent=state==='recording'?'REC':
+          state==='starting'?'准备中':state==='stopping'?'停止中':
+          state==='saving'?'下载中':state==='error'?'保存失败':'';
+        recordTimerLabel.hidden=state!=='recording';
+        if(state!=='recording')recordStatus.classList.remove('warning');
+        signal('RECORD_STATE',{recordingState:state,elapsedMs:state==='recording'?Date.now()-recordStartedAt:0});
+      };
+      const updateRecordTimer = () => {
+        if(recordState!=='recording'||!recordStartedAt)return;
+        const elapsed=Date.now()-recordStartedAt;
+        recordTimerLabel.textContent=formatRecordDuration(elapsed);
+        if(elapsed>=RECORD_WARNING_MS){
+          recordStatus.classList.add('warning');
+          if(!recordWarningShown){recordWarningShown=true;showToast('录像已达25分钟，将在30分钟时自动结束');}
+        }
+        if(elapsed>=RECORD_MAX_MS)void stopRecording('time-limit',false);
+      };
+      const waitForRecordDownload = () => new Promise(resolve=>{
+        clearTimeout(recordDownloadTimeout);
+        recordDownloadResolver=resolve;
+        recordDownloadTimeout=setTimeout(()=>{
+          recordDownloadTimeout=null;
+          const done=recordDownloadResolver;recordDownloadResolver=null;
+          done?.(false);
+        },30000);
+      });
+      const settleRecordDownload = success => {
+        clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;
+        const done=recordDownloadResolver;recordDownloadResolver=null;
+        done?.(Boolean(success));
+      };
+      const resetRecordSession = () => {
+        clearInterval(recordTimer);recordTimer=null;
+        clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;
+        recordDownloadResolver=null;recordStartedAt=0;recordFileBase='';
+        recordFileBlob=null;recordFileName='';recordWarningShown=false;
+        recordStopPromise=null;recordStartPromise=null;
+        setRecordState('idle');
+      };
+      const stopRecording = (reason='user',forTeardown=false) => {
+        if(recordStopPromise)return recordStopPromise;
+        if(recordState==='idle')return Promise.resolve(true);
+        recordStopPromise=(async()=>{
+          if(recordState==='starting'&&recordStartPromise){try{await recordStartPromise;}catch(_){}}
+          if(recordState==='idle')return true;
+          const instance=player;
+          if(!instance||typeof instance.stopSave!=='function')throw new Error('record_player_unavailable');
+          clearInterval(recordTimer);recordTimer=null;
+          setRecordState('stopping');
+          let blob=recordFileBlob;
+          let filename=recordFileName;
+          if(!blob){
+            const result=await Promise.resolve(instance.stopSave());
+            const data=result?.data||result||instance.recordRes||null;
+            blob=data?.file instanceof Blob?data.file:null;
+            if(!blob&&typeof data?.url==='string'&&data.url.startsWith('blob:')){
+              const response=await fetch(data.url);
+              if(!response.ok)throw new Error('record_blob_fetch_failed');
+              blob=await response.blob();
+            }
+            if(!(blob instanceof Blob)||!blob.size)throw new Error('record_file_empty');
+            filename=blob.name||((recordFileBase||makeRecordFileBase())+'.mp4');
+            if(!/\\.mp4$/i.test(filename))filename+='.mp4';
+            recordFileBlob=blob;recordFileName=filename;
+          }
+          setRecordState('saving');
+          const downloadResult=waitForRecordDownload();
+          signal('RECORD_FILE',{filename:filename,file:blob});
+          const downloaded=await downloadResult;
+          if(!downloaded)throw new Error('record_download_failed');
+          if(!forTeardown)showToast('录像下载已触发，请检查设备下载列表');
+          resetRecordSession();
+          return true;
+        })().catch(error=>{
+          clearInterval(recordTimer);recordTimer=null;
+          setRecordState('error');
+          showToast('录像保存失败，请点击红色按钮重试');
+          return false;
+        }).finally(()=>{if(recordState!=='error')recordStopPromise=null;});
+        return recordStopPromise;
+      };
+      const startRecording = async () => {
+        if(!player||!firstFrame||stopping||recordState!=='idle'||talkActive||talkBusy||
+           qualityBusy||ptzOpen||typeof player.startSave!=='function'||typeof player.stopSave!=='function')return;
+        const instance=player;
+        recordFileBase=makeRecordFileBase();recordFileName='';recordFileBlob=null;
+        recordWarningShown=false;recordStartedAt=0;
+        setRecordState('starting');
+        recordStartPromise=Promise.resolve().then(()=>instance.startSave(recordFileBase));
+        try{
+          await recordStartPromise;
+          if(instance!==player||stopping)return;
+          if(instance.recording!==true)throw new Error('record_start_not_confirmed');
+          recordStartedAt=Date.now();
+          setRecordState('recording');
+          clearInterval(recordTimer);recordTimer=setInterval(updateRecordTimer,1000);
+          updateRecordTimer();
+        }catch(_){
+          resetRecordSession();
+          showToast('录像启动失败，请检查设备码流');
+        }finally{recordStartPromise=null;}
+      };
+      buttonRecord.addEventListener('click',()=>{
+        if(recordState==='idle')void startRecording();
+        else if(recordState==='recording'||recordState==='error')void stopRecording('user',false);
+      });
+      window.addEventListener('pagehide',()=>{
+        if(recordState==='recording'||recordState==='error')void stopRecording('pagehide',true);
+      });
       const hideQualitySwitchOverlay = (reason='hidden') => {
         clearTimeout(qualitySwitchOverlayTimer);qualitySwitchOverlayTimer=null;
         qualitySwitchOverlayGeneration++;
@@ -954,12 +1147,28 @@
         if(firstFrame&&!qualityCurrentConfirmed&&!qualityPendingVerification)
           scheduleInitialQualitySync('stream-info-stable-candidate');
       };
+      const placeQualityMenu = () => {
+        if(qualityMenu.hidden)return;
+        const anchor=buttonQuality.getBoundingClientRect();
+        const margin=8,gap=8;
+        const availableAbove=Math.max(80,anchor.top-gap-margin);
+        const maxHeight=Math.max(80,Math.min(window.innerHeight*.72,360,availableAbove));
+        qualityMenu.style.maxHeight=String(maxHeight)+'px';
+        const menuHeight=Math.min(qualityMenu.scrollHeight||maxHeight,maxHeight);
+        const menuWidth=qualityMenu.offsetWidth||104;
+        const maxLeft=Math.max(margin,window.innerWidth-menuWidth-margin);
+        const left=clamp(anchor.right-menuWidth,margin,maxLeft);
+        const top=Math.max(margin,anchor.top-gap-menuHeight);
+        qualityMenu.style.left=String(left)+'px';
+        qualityMenu.style.top=String(top)+'px';
+      };
       const renderQualityMenu = () => {
         qualityMenuList.replaceChildren();
         if(!qualityOptions.length){
           const empty=document.createElement('div');empty.className='quality-empty';
           empty.textContent=qualityListTimedOut?'设备暂未返回清晰度选项':'正在读取设备支持的清晰度…';
-          qualityMenuList.appendChild(empty);return;
+          qualityMenuList.appendChild(empty);
+          requestAnimationFrame(placeQualityMenu);return;
         }
         for(const option of qualityOptions){
           const button=document.createElement('button');button.type='button';
@@ -970,6 +1179,7 @@
           button.addEventListener('click',()=>void selectQuality(option));
           qualityMenuList.appendChild(button);
         }
+        requestAnimationFrame(placeQualityMenu);
       };
       const setQualityOptions = (input,source='sdk') => {
         const list=Array.isArray(input)?input:Array.isArray(input?.data)?input.data:[];
@@ -992,6 +1202,7 @@
         showControls(true);clearTimeout(hideTimer);
         qualityMenu.hidden=false;buttonQuality.setAttribute('aria-expanded','true');
         qualityListTimedOut=false;renderQualityMenu();
+        requestAnimationFrame(placeQualityMenu);
         if(!qualityOptions.length){
           clearTimeout(qualityListTimer);
           qualityListTimer=setTimeout(()=>{
@@ -1098,6 +1309,9 @@
         if(!qualityMenu.hidden)closeQualityMenu('button-toggle');
         else openQualityMenu();
       });
+      window.addEventListener('resize',()=>requestAnimationFrame(placeQualityMenu),{passive:true});
+      document.addEventListener('fullscreenchange',()=>requestAnimationFrame(placeQualityMenu));
+      document.addEventListener('webkitfullscreenchange',()=>requestAnimationFrame(placeQualityMenu));
       document.addEventListener('pointerdown',event=>{
         if(!qualityMenu.hidden&&!qualityMenu.contains(event.target)&&!buttonQuality.contains(event.target))
           closeQualityMenu('outside-pointer');
@@ -2325,6 +2539,10 @@
       };
       async function stop() {
         if (stopping) return;
+        if(recordState!=='idle'){
+          const saved=await stopRecording('player-stop',true);
+          if(!saved){signal('STOP_BLOCKED',{reason:'record_save_failed'});return;}
+        }
         stopping = true;
         closePtz(true);
         ptzSupported=false;ptzDirections=[];ptzBusy=false;updatePtzCapability();
@@ -2368,6 +2586,7 @@
         qualityListTimedOut=false;clearTimeout(qualityListTimer);qualityListTimer=null;
         buttonQuality.disabled=false;buttonQuality.textContent='清晰度';buttonQuality.title='设备当前清晰度尚未确认；点击查看支持档位';
         qualityMenu.hidden=true;buttonQuality.setAttribute('aria-expanded','false');
+        buttonRecord.hidden=true;resetRecordSession();
         buttonSound.disabled = false;
         updateSoundUI();
         document.body.classList.remove('live');
@@ -2409,6 +2628,9 @@
         buttonQuality.disabled=false;buttonQuality.textContent='清晰度';buttonQuality.title='设备当前清晰度尚未确认；点击查看支持档位';
         qualityMenu.hidden=true;buttonQuality.setAttribute('aria-expanded','false');
         firstFrameSignaled=false;
+        recordDisplayName=String(msg.recordName||'萤石摄像机');
+        recordDeviceSerial=String(msg.deviceSerial||'');
+        buttonRecord.hidden=true;resetRecordSession();
         updateSoundUI();
         pipVideo.muted=initialMuted;
         if (!vendorReady) {signal('ERROR','sdk_not_installed');return;}
@@ -2436,6 +2658,11 @@
             scaleMode:1,
             env:{domain:'https://open.ys7.com'},
             staticPath:'/luxe_ezviz/sdk/ezuikit_static',
+            // Disable the SDK's immediate download so each camera hands its
+            // completed Blob to the parent page's serial download queue.
+            downloadRecord:false,
+            // Keep the original encoded stream/audio and avoid a second WASM transcode.
+            recordOptions:{enabledWatermarkRecord:false},
             handleFirstFrameDisplay:onFrame,
             handleError:err=>{if(!stopping)signal('ERROR',cleanError(err));},
           };
@@ -2459,6 +2686,7 @@
           }
           updateTalkUI();
           buttonShot.hidden = typeof player.capturePicture !== 'function';
+          buttonRecord.hidden = typeof player.startSave !== 'function' || typeof player.stopSave !== 'function';
           if (typeof player.on === 'function' && SDK.EVENTS?.firstFrameDisplay)
             player.on(SDK.EVENTS.firstFrameDisplay,onFrame);
           if (typeof player.on === 'function') {
@@ -2497,6 +2725,9 @@
             if(data.result?.ok)pending.resolve(data.result);
             else pending.reject(new Error(data.result?.reason||'ptz_unavailable'));
           }
+        }
+        else if(data.command==='RECORD_DOWNLOAD_RESULT'&&currentId===data.id){
+          settleRecordDownload(data.success===true);
         }
         else if(data.command==='STOP'&&currentId===data.id)stop();
       });

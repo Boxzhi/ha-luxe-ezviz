@@ -845,7 +845,7 @@
           setRecordState('error');
           showToast('录像保存失败，请点击红色按钮重试');
           return false;
-        }).finally(()=>{if(recordState!=='error')recordStopPromise=null;});
+        }).finally(()=>{recordStopPromise=null;});
         return recordStopPromise;
       };
       const startRecording = async () => {

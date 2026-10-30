@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 
-**Version:** `v1.2.0-beta.2` — beta.1 baseline with conservative AVC/HEVC MP4 metadata validation and zero-dimension repair on EZUIKit 9.0.24. The production integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
+**Version:** `v1.2.0` — stable release based on beta.2, with verified local recording, conservative AVC/HEVC MP4 metadata repair, and refined recording controls on EZUIKit 9.0.24. The existing integration domain, card type, saved configuration entries, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle remain in place. This is an unofficial Home Assistant integration and is not an official EZVIZ product.
 
 ## HACS installation
 
@@ -15,7 +15,7 @@ Unofficial Home Assistant integration for EZVIZ Cloud cameras.
 lovelace:
   resource_mode: yaml
   resources:
-    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.2-ezuikit-9.0.24
+    - url: /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-ezuikit-9.0.24
       type: module
 ```
 
@@ -30,13 +30,14 @@ muted: true
 debug: false
 ```
 
-## v1.2.0 beta test notes
+## v1.2.0 release notes
 
-This is a pre-release for testing. It updates the existing production integration in place; it is not a second integration domain. Back up the current HACS-managed integration folder before installing the beta.
+This stable release updates the existing production integration in place; it is not a second integration domain. The v1.2.0-beta.2 baseline passed real-device recording regression before the final recording-control and timer presentation refinements. Back up the current HACS-managed integration folder before updating.
 
 - PTZ trigger and panel move to the left side; the trigger uses a centered crosshair icon.
 - Screenshot and recording controls are stacked on the right, with screenshot above recording.
-- Recording shows REC and an elapsed timer at the top-right. During recording, the current player hides its other controls.
+- Recording uses a left-facing camera icon: white when idle, with a white outline and red center while recording. The icon remains aligned to the screenshot control's 23px visual size and 36px hit area.
+- The top-right recording label is a lightweight translucent timer: a red dot with white elapsed time, changing to amber at 25 minutes. The redundant REC text is removed; processing and save-failure states have their own indicators.
 - Each camera has an independent recording session, 25-minute warning, and 30-minute automatic stop.
 - The SDK is configured with downloadRecord disabled and original-stream recording mode so completed Blobs can enter the page-level sequential download queue.
 - Recording audio is intended to preserve the camera's source audio independently of live playback mute. Verify this on real cameras; the SDK's browser/player behavior can vary by stream and device.
@@ -45,7 +46,7 @@ This is a pre-release for testing. It updates the existing production integratio
 - Adds browser-side MP4 metadata validation for AVC (`avc1`/`avc3`) and HEVC (`hvc1`/`hev1`) recordings. When the SPS provides an unambiguous display size and the track uses an identity matrix without `clap`/`pasp`, only zero-valued Sample Entry and/or `tkhd` dimensions are repaired.
 - Valid files are passed through as the original Blob without changing any bytes. Unsupported or conflicting metadata is left untouched; the repair does not remux or transcode audio/video.
 
-Because this is a beta, test with one camera first, then two cameras simultaneously. Do not treat the first beta as a validated unattended recording solution.
+The 30-minute limit is enforced independently for each camera. Browser download completion is not observable through a reliable browser event, and force-closing the browser or HA app can interrupt an unfinished save; do not treat browser-side recording as an unattended archival system.
 
 ## SDK licensing
 

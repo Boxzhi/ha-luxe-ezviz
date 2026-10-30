@@ -30,7 +30,7 @@ jobs:
           manifest = json.loads(Path("custom_components/luxe_ezviz/manifest.json").read_text())
           sdk = json.loads(Path("custom_components/luxe_ezviz/sdk_hashes.json").read_text())
           assert manifest["domain"] == "luxe_ezviz"
-          assert manifest["version"].startswith("1.2.0")
+          assert manifest["version"] == "1.2.0"
           assert sdk["version"] == "9.0.24"
           assert len(sdk["files"]) == 12
           assert "ezuikit_static/libSystemTransformWASM.js" in sdk["files"]
@@ -134,23 +134,25 @@ jobs:
           body: |
             ## Luxe EZVIZ v${{ steps.meta.outputs.version }}
 
-            This is a HACS beta test release based on v1.2.0-beta.1, adding conservative MP4 metadata validation and repair for local recordings.
+            Stable v1.2.0 release, based on v1.2.0-beta.2 after real-device regression of local recording and MP4 metadata repair.
 
-            - Keeps the production integration domain, saved config entries, API routes, and card type.
-            - Adds per-camera local recording, a 30-minute limit, a 25-minute warning, and independent per-camera state.
-            - Uses EZUIKit 9.0.24 with SDK auto-download disabled so completed recording Blobs can be passed to a page-level serial download queue.
-            - Uses original-stream recording mode (enabledWatermarkRecord: false) to avoid a second WASM transcode; audio preservation while playback is muted must be verified on real cameras.
-            - Multiple cameras may record concurrently; download triggers are serialized with a short gap. Browsers do not expose a reliable download-completed event.
-            - Player teardown attempts to stop and hand off recordings before releasing the player. Browser/app force-close cannot guarantee recovery.
-            - Adds browser-side AVC/HEVC MP4 metadata inspection. Only zero-valued Sample Entry/tkhd dimensions are repaired when SPS size and display geometry are unambiguous; valid files remain byte-for-byte unchanged. No remuxing or transcoding is performed.
+            - Preserves the existing integration domain, saved config entries, API routes, card type, audio exclusivity, talk coordination, PTZ controls, and playback lifecycle.
+            - Supports per-camera local recording with a 30-minute maximum, a 25-minute warning, and independent recording timers. Multiple cameras may record concurrently.
+            - Uses EZUIKit 9.0.24 with SDK auto-download disabled; completed recording Blobs are passed to the page-level serial download queue.
+            - Preserves camera-source audio in recordings independently of the live playback mute state.
+            - Adds conservative AVC/HEVC MP4 metadata validation. Only unambiguous zero-valued Sample Entry and/or tkhd dimensions are repaired from the codec SPS; valid files remain byte-for-byte unchanged. No remuxing or transcoding is performed.
+            - Refines recording controls with a left-facing camera icon, white idle outline, red recording center, and a compact translucent elapsed-time label. The REC text is removed; the 25-minute warning uses amber styling.
+            - Recording controls remain hidden when the active EZUIKit player does not expose both recording methods.
+            - Download triggers are serialized with a short gap because browsers do not expose a reliable download-completed event.
+            - Player teardown attempts to stop and hand off recordings before releasing the player. Force-closing the browser or HA app can still interrupt an unfinished save.
 
-            ### Install the beta through HACS
-            1. In HACS, open the Luxe EZVIZ integration menu and enable/show beta versions.
-            2. Select v${{ steps.meta.outputs.version }} and download/update.
+            ### Install or update through HACS
+            1. Open HACS and select Luxe EZVIZ.
+            2. Install or update to stable v${{ steps.meta.outputs.version }}.
             3. Restart Home Assistant.
-            4. Test first with one camera, then two cameras recording simultaneously.
+            4. If using YAML Lovelace resources, update the module URL to /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-ezuikit-9.0.24.
 
-            Existing integration configuration and dashboard YAML remain unchanged. If using YAML Lovelace resources, use /luxe_ezviz/static/luxe-ezviz-card.js?v=1.2.0-beta.2-ezuikit-9.0.24.
+            Existing integration configuration and dashboard YAML remain unchanged.
           files: |
             ${{ steps.meta.outputs.zip }}
             ${{ steps.meta.outputs.zip }}.sha256

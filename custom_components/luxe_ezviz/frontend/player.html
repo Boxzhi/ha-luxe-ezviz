@@ -399,6 +399,8 @@
       let recordStopPromise = null;
       let recordDownloadResolver = null;
       let recordDownloadTimeout = null;
+      let recordFileAcceptedResolver = null;
+      let recordFileAcceptedTimeout = null;
       let recordFileBase = '';
       let recordFileBlob = null;
       let recordFileUrl = '';
@@ -785,6 +787,20 @@
         }
         if(elapsed>=RECORD_MAX_MS)void stopRecording('time-limit',false);
       };
+      const waitForRecordFileAccepted = () => new Promise(resolve=>{
+        clearTimeout(recordFileAcceptedTimeout);
+        recordFileAcceptedResolver=resolve;
+        recordFileAcceptedTimeout=setTimeout(()=>{
+          recordFileAcceptedTimeout=null;
+          const done=recordFileAcceptedResolver;recordFileAcceptedResolver=null;
+          done?.(false);
+        },6000);
+      });
+      const settleRecordFileAccepted = success => {
+        clearTimeout(recordFileAcceptedTimeout);recordFileAcceptedTimeout=null;
+        const done=recordFileAcceptedResolver;recordFileAcceptedResolver=null;
+        done?.(Boolean(success));
+      };
       const waitForRecordDownload = () => new Promise(resolve=>{
         clearTimeout(recordDownloadTimeout);
         recordDownloadResolver=resolve;
@@ -792,7 +808,7 @@
           recordDownloadTimeout=null;
           const done=recordDownloadResolver;recordDownloadResolver=null;
           done?.(false);
-        },30000);
+        },60000);
       });
       const settleRecordDownload = success => {
         clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;
@@ -802,7 +818,9 @@
       const resetRecordSession = () => {
         clearInterval(recordTimer);recordTimer=null;
         clearTimeout(recordDownloadTimeout);recordDownloadTimeout=null;
-        recordDownloadResolver=null;recordStartedAt=0;recordFileBase='';
+        clearTimeout(recordFileAcceptedTimeout);recordFileAcceptedTimeout=null;
+        recordDownloadResolver=null;recordFileAcceptedResolver=null;
+        recordStartedAt=0;recordFileBase='';
         recordFileBlob=null;recordFileUrl='';recordFileName='';recordWarningShown=false;
         recordStopPromise=null;recordStartPromise=null;
         setRecordState('idle');
@@ -840,13 +858,21 @@
             recordFileBlob=blob;recordFileName=filename;
           }
           setRecordState('saving');
+          const acceptedResult=waitForRecordFileAccepted();
           const downloadResult=waitForRecordDownload();
           signal('RECORD_FILE',{filename:filename,file:blob});
+          const accepted=await acceptedResult;
+          if(!accepted)throw new Error('record_download_queue_rejected');
+          if(forTeardown){
+            // The parent owns the Blob now; its page-level queue survives this iframe teardown.
+            resetRecordSession();
+            return true;
+          }
           const downloaded=await downloadResult;
           if(!downloaded)throw new Error('record_download_failed');
-          if(!forTeardown)showToast('录像下载已触发，请检查设备下载列表');
+          showToast('录像下载已触发，请检查设备下载列表');
           resetRecordSession();
-          if(!forTeardown)showControls(true);
+          showControls(true);
           return true;
         })().catch(error=>{
           clearInterval(recordTimer);recordTimer=null;
@@ -2733,6 +2759,9 @@
             if(data.result?.ok)pending.resolve(data.result);
             else pending.reject(new Error(data.result?.reason||'ptz_unavailable'));
           }
+        }
+        else if(data.command==='RECORD_FILE_ACCEPTED'&&currentId===data.id){
+          settleRecordFileAccepted(data.success!==false);
         }
         else if(data.command==='RECORD_DOWNLOAD_RESULT'&&currentId===data.id){
           settleRecordDownload(data.success===true);

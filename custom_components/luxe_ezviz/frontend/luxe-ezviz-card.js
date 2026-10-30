@@ -606,7 +606,7 @@
       }
       this._stop(true,'navigation');
       const deadline=Date.now()+((this._recordingState&&this._recordingState!=='idle')?45000:5500);
-      while((this._iframe || this._state==='stopping') && Date.now()<deadline){
+      while(this._state==='stopping'&&this._iframe&&Date.now()<deadline){
         await new Promise(resolve=>setTimeout(resolve,50));
       }
       // The existing STOP fallback owns iframe cleanup; don't duplicate it.

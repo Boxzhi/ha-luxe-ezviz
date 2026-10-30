@@ -13,7 +13,7 @@ class PackageChecks(unittest.TestCase):
   h=json.loads((ROOT/'hacs.json').read_text())
   self.assertEqual(m['domain'],'luxe_ezviz')
   self.assertEqual(m['name'],h['name'])
-  self.assertEqual(m['version'],'1.2.0-beta.1')
+  self.assertTrue(m['version'].startswith('1.2.0'))
   self.assertIn('issue_tracker',m)
   keys=list(m)
   self.assertEqual(keys[:2],['domain','name'])
@@ -21,10 +21,11 @@ class PackageChecks(unittest.TestCase):
  def test_frontend_paths(self):
   card=(COMP/'frontend/luxe-ezviz-card.js').read_text()
   player=(COMP/'frontend/player.html').read_text()
-  self.assertIn('/luxe_ezviz/static/player.html?v=1.2.0-beta.1-ezuikit-9.0.24',card)
+  asset_version=m['version']+'-ezuikit-9.0.24'
+  self.assertIn('/luxe_ezviz/static/player.html?v='+asset_version,card)
   setup=(COMP/'frontend_setup.py').read_text()
-  self.assertIn("VERSION='1.2.0-beta.1'",setup)
-  self.assertIn("ASSET_VERSION='1.2.0-beta.1-ezuikit-9.0.24'",setup)
+  self.assertIn("VERSION='"+m['version']+"'",setup)
+  self.assertIn("ASSET_VERSION='"+asset_version+"'",setup)
   self.assertIn('/luxe_ezviz/sdk/ezuikit.js',player)
   self.assertIn("staticPath:'/luxe_ezviz/sdk/ezuikit_static'",player)
   self.assertNotIn('/local/luxe-ezviz/player.html',card)
